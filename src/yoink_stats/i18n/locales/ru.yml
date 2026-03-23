@@ -1,0 +1,50 @@
+stats:
+  not_available: "Сервис статистики недоступен."
+  no_data: "Данные для этой группы отсутствуют."
+  generating: "Формирую статистику..."
+  help: |
+    /stats [подкоманда] [параметры]
+    Подкоманды: counts, hours, days, week, history, user, types, words, random, corr, delta
+
+  counts:
+    title: "Топ {n} отправителей сообщений"
+    row: "{rank}. {name} - {count} сообщений"
+
+  hours:
+    title: "Активность по часам суток"
+
+  days:
+    title: "Активность по дням недели"
+
+  week:
+    title: "Тепловая карта активности за неделю"
+
+  history:
+    title: "История сообщений"
+
+  user:
+    title: "Сводка по пользователю"
+    total: "Всего сообщений: {count}"
+    avg: "В среднем в день: {avg:.1f}"
+    first: "Первое сообщение: {date}"
+    last: "Последнее сообщение: {date}"
+    top_type: "Частый тип: {type}"
+
+  types:
+    title: "Типы сообщений"
+
+  words:
+    title: "Топ слов"
+
+  random:
+    title: "Случайная цитата"
+
+  corr:
+    title: "Корреляция активности"
+    result: "r = {value:.4f}"
+
+  delta:
+    title: "Медианное время ответа"
+    result: "{time} (на основе {count} ответов)"
+
+  error: "Не удалось сформировать статистику: {error}"

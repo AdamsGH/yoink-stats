@@ -1,0 +1,50 @@
+stats:
+  not_available: "Stats service not available."
+  no_data: "No data available for this group."
+  generating: "Generating stats..."
+  help: |
+    /stats [subcommand] [options]
+    Subcommands: counts, hours, days, week, history, user, types, words, random, corr, delta
+
+  counts:
+    title: "Top {n} message senders"
+    row: "{rank}. {name} - {count} messages"
+
+  hours:
+    title: "Activity by hour of day"
+
+  days:
+    title: "Activity by day of week"
+
+  week:
+    title: "Weekly activity heatmap"
+
+  history:
+    title: "Message history"
+
+  user:
+    title: "User summary"
+    total: "Total messages: {count}"
+    avg: "Average per day: {avg:.1f}"
+    first: "First message: {date}"
+    last: "Last message: {date}"
+    top_type: "Top type: {type}"
+
+  types:
+    title: "Message types"
+
+  words:
+    title: "Top words"
+
+  random:
+    title: "Random quote"
+
+  corr:
+    title: "Activity correlation"
+    result: "r = {value:.4f}"
+
+  delta:
+    title: "Median response time"
+    result: "{time} (based on {count} replies)"
+
+  error: "Failed to generate stats: {error}"
