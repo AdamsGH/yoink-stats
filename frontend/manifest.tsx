@@ -25,9 +25,9 @@ export const statsPlugin: PluginManifest = {
       label: 'Stats',
       minRole: ['owner', 'admin', 'moderator', 'user'],
       items: [
-        { label: 'Chat Stats',      path: '/stats',        icon: <BarChart2 className="h-4 w-4" />, minRole: ['owner', 'admin', 'moderator', 'user'] },
-        { label: 'Download Stats',  path: '/admin/stats',  icon: <Download  className="h-4 w-4" />, minRole: ['owner', 'admin'] },
-        { label: 'Import History',  path: '/stats/import', icon: <Upload    className="h-4 w-4" />, minRole: ['owner'] },
+        { label: 'Chat Stats',     i18nKey: 'nav.chat_stats',     path: '/stats',        icon: <BarChart2 className="h-4 w-4" />, minRole: ['owner', 'admin', 'moderator', 'user'] },
+        { label: 'Download Stats', i18nKey: 'nav.admin_stats',    path: '/admin/stats',  icon: <Download  className="h-4 w-4" />, minRole: ['owner', 'admin'] },
+        { label: 'Import History', i18nKey: 'nav.import_history', path: '/stats/import', icon: <Upload    className="h-4 w-4" />, minRole: ['owner'] },
       ],
     },
   ],
