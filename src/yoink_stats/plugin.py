@@ -54,7 +54,7 @@ class StatsPlugin:
             ),
         ]
 
-    def get_help_section(self, role: str, lang: str) -> str:
+    def get_help_section(self, role: str, lang: str, granted_features: set[str] | None = None) -> str:
         _titles = {"en": "Chat Stats", "ru": "Статистика чата"}
         _bodies = {
             "en": (
