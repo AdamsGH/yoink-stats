@@ -31,6 +31,7 @@ class StatsPlugin:
                 description="Chat statistics",
                 min_role="user",
                 scope="groups",
+                descriptions={"ru": "Статистика чата"},
             ),
         ]
 
