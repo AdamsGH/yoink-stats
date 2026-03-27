@@ -26,7 +26,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/ca
 import { Skeleton } from '@core/components/ui/skeleton'
 import { toast } from '@core/components/ui/toast'
 import type {
-  DailyHistory,
   DayActivity,
   HourActivity,
   MentionStat,
@@ -125,7 +124,6 @@ function userLabel(u: TopUser): string {
   return u.display_name ?? u.username ?? String(u.user_id)
 }
 
-/** Estimate YAxis label width: ~7px per char, min 48, max 40% of viewport. */
 function yAxisWidth(labels: string[]): number {
   const maxLen = labels.reduce((m, l) => Math.max(m, l.length), 0)
   const maxAllowed = Math.floor((typeof window !== 'undefined' ? window.innerWidth : 400) * 0.4)
@@ -138,32 +136,16 @@ function formatMonthLabel(month: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
 }
 
-function computeDerivedStats(
-  overview: StatsOverview,
-  byHour: HourActivity[],
-  byDay: DayActivity[],
-): { avgPerDay: number; peakHour: string; peakDay: string } {
-  let avgPerDay = 0
-  if (overview.first_date && overview.last_date) {
-    const start = new Date(overview.first_date).getTime()
-    const end = new Date(overview.last_date).getTime()
-    const days = Math.max(1, Math.ceil((end - start) / 86_400_000))
-    avgPerDay = Math.round(overview.total_messages / days)
-  }
+interface DailyActivity {
+  date: string
+  messages: number
+  dau: number
+}
 
-  let peakHour = '-'
-  if (byHour.length > 0) {
-    const max = byHour.reduce((a, b) => (b.count > a.count ? b : a))
-    peakHour = `${max.hour}:00`
-  }
-
-  let peakDay = '-'
-  if (byDay.length > 0) {
-    const max = byDay.reduce((a, b) => (b.count > a.count ? b : a))
-    peakDay = DAY_NAMES[max.day] ?? '-'
-  }
-
-  return { avgPerDay, peakHour, peakDay }
+interface MemberEvent {
+  date: string
+  joined: number
+  left: number
 }
 
 interface GroupData {
@@ -177,6 +159,11 @@ interface GroupData {
   mentions: MentionStat[]
 }
 
+interface PeriodData {
+  daily: DailyActivity[]
+  memberEvents: MemberEvent[]
+}
+
 export default function StatsGroupPage() {
   const { t } = useTranslation()
   const { chatId } = useParams<{ chatId: string }>()
@@ -185,29 +172,60 @@ export default function StatsGroupPage() {
 
   const [groupTitle, setGroupTitle] = useState<string>('')
   const [data, setData] = useState<GroupData | null>(null)
-  const [history, setHistory] = useState<DailyHistory[]>([])
+  const [periodData, setPeriodData] = useState<PeriodData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [historyLoading, setHistoryLoading] = useState(false)
+  const [periodLoading, setPeriodLoading] = useState(false)
   const [period, setPeriod] = useState<Period>(30)
 
+  // Overview (all-time) + static per-period data that reloads on period change
   useEffect(() => {
     if (!numericChatId) return
     setLoading(true)
 
     Promise.all([
       apiClient.get<StatsOverview>('/stats/overview', { params: { chat_id: numericChatId } }),
-      apiClient.get<TopUser[]>('/stats/top-users', { params: { chat_id: numericChatId, limit: 10 } }),
-      apiClient.get<HourActivity[]>('/stats/activity-by-hour', { params: { chat_id: numericChatId } }),
-      apiClient.get<DayActivity[]>('/stats/activity-by-day', { params: { chat_id: numericChatId } }),
-      apiClient.get<MessageType[]>('/stats/message-types', { params: { chat_id: numericChatId } }),
-      apiClient.get<WordCount[]>('/stats/words', { params: { chat_id: numericChatId, limit: 20 } }),
       apiClient.get<StatsGroup[]>('/stats/groups'),
-      apiClient.get<MonthActivity[]>('/stats/activity-by-month', { params: { chat_id: numericChatId } }),
-      apiClient.get<MentionStat[]>('/stats/mention-stats', { params: { chat_id: numericChatId, limit: 15 } }),
     ])
-      .then(([overviewRes, usersRes, hourRes, dayRes, typesRes, wordsRes, groupsRes, monthRes, mentionRes]) => {
-        setData({
+      .then(([overviewRes, groupsRes]) => {
+        const grp = groupsRes.data.find((g) => g.chat_id === numericChatId)
+        setGroupTitle(grp?.title ?? `Group ${chatId}`)
+        setData((prev) => prev ? { ...prev, overview: overviewRes.data } : {
           overview: overviewRes.data,
+          topUsers: [],
+          byHour: [],
+          byDay: [],
+          types: [],
+          words: [],
+          byMonth: [],
+          mentions: [],
+        })
+      })
+      .catch(() => toast.error('Failed to load group stats'))
+      .finally(() => setLoading(false))
+  }, [numericChatId, chatId])
+
+  // Period-sensitive data: reloads when period changes
+  useEffect(() => {
+    if (!numericChatId) return
+    setPeriodLoading(true)
+
+    const p: Record<string, number> = { chat_id: numericChatId }
+    if (period > 0) p.days = period
+
+    Promise.all([
+      apiClient.get<TopUser[]>('/stats/top-users', { params: { ...p, limit: 10 } }),
+      apiClient.get<HourActivity[]>('/stats/activity-by-hour', { params: p }),
+      apiClient.get<DayActivity[]>('/stats/activity-by-day', { params: p }),
+      apiClient.get<MessageType[]>('/stats/message-types', { params: p }),
+      apiClient.get<WordCount[]>('/stats/words', { params: { ...p, limit: 20 } }),
+      apiClient.get<MonthActivity[]>('/stats/activity-by-month', { params: p }),
+      apiClient.get<MentionStat[]>('/stats/mention-stats', { params: { ...p, limit: 15 } }),
+      apiClient.get<DailyActivity[]>('/stats/daily-activity', { params: p }),
+      apiClient.get<MemberEvent[]>('/stats/member-events', { params: p }),
+    ])
+      .then(([usersRes, hourRes, dayRes, typesRes, wordsRes, monthRes, mentionRes, dailyRes, eventsRes]) => {
+        setData((prev) => ({
+          overview: prev?.overview ?? { chat_id: numericChatId, total_messages: 0, unique_users: 0, first_date: null, last_date: null },
           topUsers: usersRes.data,
           byHour: hourRes.data,
           byDay: dayRes.data,
@@ -215,24 +233,14 @@ export default function StatsGroupPage() {
           words: wordsRes.data,
           byMonth: monthRes.data,
           mentions: mentionRes.data,
+        }))
+        setPeriodData({
+          daily: dailyRes.data,
+          memberEvents: eventsRes.data,
         })
-        const grp = groupsRes.data.find((g) => g.chat_id === numericChatId)
-        setGroupTitle(grp?.title ?? `Group ${chatId}`)
       })
-      .catch(() => toast.error('Failed to load group stats'))
-      .finally(() => setLoading(false))
-  }, [numericChatId, chatId])
-
-  useEffect(() => {
-    if (!numericChatId) return
-    setHistoryLoading(true)
-    const params: Record<string, number> = { chat_id: numericChatId }
-    if (period > 0) params.days = period
-    apiClient
-      .get<DailyHistory[]>('/stats/history', { params })
-      .then((res) => setHistory(res.data))
-      .catch(() => toast.error('Failed to load message history'))
-      .finally(() => setHistoryLoading(false))
+      .catch(() => toast.error('Failed to load period stats'))
+      .finally(() => setPeriodLoading(false))
   }, [numericChatId, period])
 
   const hourData = Array.from({ length: 24 }, (_, h) => {
@@ -245,7 +253,7 @@ export default function StatsGroupPage() {
     return { day: DAY_NAMES[d], count: found?.count ?? 0 }
   })
 
-  const derived = data ? computeDerivedStats(data.overview, data.byHour, data.byDay) : null
+  const hasMemberEvents = (periodData?.memberEvents.length ?? 0) > 0
 
   const exportData = (format: 'json' | 'csv') => {
     if (!data) return
@@ -259,7 +267,8 @@ export default function StatsGroupPage() {
       words: data.words,
       byMonth: data.byMonth,
       mentions: data.mentions,
-      history,
+      daily: periodData?.daily ?? [],
+      memberEvents: periodData?.memberEvents ?? [],
     }
     let blob: Blob
     let filename: string
@@ -287,6 +296,9 @@ export default function StatsGroupPage() {
     return { ...item, percent: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0' }
   }) ?? []
 
+  const isLoading = loading || !data
+  const isPeriodLoading = periodLoading || !periodData
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -306,38 +318,56 @@ export default function StatsGroupPage() {
         )}
       </div>
 
-      {/* Overview KPIs */}
+      {/* Period toggle - applies to all charts below */}
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">Period</span>
+        <PeriodToggle value={period} onChange={setPeriod} />
+      </div>
+
+      {/* Overview KPIs (all-time, no period filter) */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {loading || !data ? (
+        {isLoading ? (
           Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
         ) : (
           <>
             <StatCard label={t('stats.total_messages')} value={data.overview.total_messages} />
             <StatCard label={t('stats.unique_users')} value={data.overview.unique_users} />
-            <StatCard label="Avg / day" value={derived?.avgPerDay ?? '-'} />
-            <StatCard label="Peak hour" value={derived?.peakHour ?? '-'} />
-            <StatCard label="Peak day" value={derived?.peakDay ?? '-'} />
+            <StatCard
+              label="Avg / day"
+              value={(() => {
+                if (!data.overview.first_date || !data.overview.last_date) return '-'
+                const days = Math.max(1, Math.ceil(
+                  (new Date(data.overview.last_date).getTime() - new Date(data.overview.first_date).getTime()) / 86_400_000
+                ))
+                return Math.round(data.overview.total_messages / days)
+              })()}
+            />
+            <StatCard
+              label="Peak hour"
+              value={data.byHour.length > 0 ? `${data.byHour.reduce((a, b) => b.count > a.count ? b : a).hour}:00` : '-'}
+            />
+            <StatCard
+              label="Peak day"
+              value={data.byDay.length > 0 ? DAY_NAMES[data.byDay.reduce((a, b) => b.count > a.count ? b : a).day] ?? '-' : '-'}
+            />
             <StatCard label="Active since" value={formatDate(data.overview.first_date)} />
           </>
         )}
       </div>
 
-      {/* Message History */}
+      {/* Daily messages + DAU */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardHeader className="pb-2">
           <CardTitle className="text-base">{t('stats.message_history')}</CardTitle>
-          <PeriodToggle value={period} onChange={setPeriod} />
         </CardHeader>
         <CardContent>
-          {historyLoading || loading ? (
+          {isPeriodLoading ? (
             <Skeleton className="h-48 w-full" />
-          ) : history.length === 0 ? (
-            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-              No data
-            </div>
+          ) : (periodData?.daily.length ?? 0) === 0 ? (
+            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">No data</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={history} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <LineChart data={periodData!.daily} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis
                   dataKey="date"
@@ -346,19 +376,49 @@ export default function StatsGroupPage() {
                   interval="preserveStartEnd"
                 />
                 <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip labelFormatter={(v) => `Date: ${v}`} formatter={(v) => [v, 'Messages']} />
-                <Line
-                  type="monotone"
-                  dataKey="count"
-                  stroke={chartColors()[0]}
-                  dot={false}
-                  strokeWidth={2}
+                <Tooltip
+                  labelFormatter={(v) => `Date: ${v}`}
+                  formatter={(v, name) => [v, name === 'messages' ? 'Messages' : 'Active users']}
                 />
+                <Legend formatter={(v) => v === 'messages' ? 'Messages' : 'Active users'} />
+                <Line type="monotone" dataKey="messages" stroke={chartColors()[0]} dot={false} strokeWidth={2} />
+                <Line type="monotone" dataKey="dau" stroke={chartColors()[3]} dot={false} strokeWidth={1.5} strokeDasharray="4 2" />
               </LineChart>
             </ResponsiveContainer>
           )}
         </CardContent>
       </Card>
+
+      {/* Member events (join/leave) */}
+      {(hasMemberEvents || isPeriodLoading) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Member events</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isPeriodLoading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={periodData!.memberEvents} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={(v: string) => v.slice(5)}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip labelFormatter={(v) => `Date: ${v}`} />
+                  <Legend />
+                  <Bar dataKey="joined" fill={chartColors()[3]} radius={[2, 2, 0, 0]} stackId="events" />
+                  <Bar dataKey="left" fill={chartColors()[2]} radius={[2, 2, 0, 0]} stackId="events" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top Users + Message Types side by side */}
       <div className="grid gap-4 lg:grid-cols-5">
@@ -367,15 +427,15 @@ export default function StatsGroupPage() {
             <CardTitle className="text-base">{t('stats.top_users')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading || !data ? (
+            {isPeriodLoading ? (
               <Skeleton className="h-48 w-full" />
-            ) : data.topUsers.length === 0 ? (
+            ) : (data?.topUsers.length ?? 0) === 0 ? (
               <div className="text-sm text-muted-foreground">No data</div>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={Math.max(180, data.topUsers.length * 28)}>
+                <ResponsiveContainer width="100%" height={Math.max(180, (data?.topUsers.length ?? 0) * 28)}>
                   <BarChart
-                    data={data.topUsers.map((u) => ({ name: userLabel(u), count: u.count, userId: u.user_id }))}
+                    data={data!.topUsers.map((u) => ({ name: userLabel(u), count: u.count, userId: u.user_id }))}
                     layout="vertical"
                     margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
                     onClick={(state) => {
@@ -387,10 +447,10 @@ export default function StatsGroupPage() {
                   >
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border" />
                     <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                    <YAxis type="category" dataKey="name" width={yAxisWidth(data.topUsers.map(userLabel))} tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" width={yAxisWidth(data!.topUsers.map(userLabel))} tick={{ fontSize: 10 }} />
                     <Tooltip formatter={(v) => [v, 'Messages']} />
                     <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                      {data.topUsers.map((_, i) => (
+                      {data!.topUsers.map((_, i) => (
                         <Cell key={i} fill={chartColors()[i % chartColors().length]} />
                       ))}
                     </Bar>
@@ -407,8 +467,8 @@ export default function StatsGroupPage() {
             <CardTitle className="text-base">{t('stats.message_types')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading || !data ? (
-              <Skeleton className="h-52 w-full" />
+            {isPeriodLoading ? (
+              <Skeleton className="h-48 w-full" />
             ) : typesWithPercent.length === 0 ? (
               <div className="text-sm text-muted-foreground">No data</div>
             ) : (
@@ -459,7 +519,7 @@ export default function StatsGroupPage() {
             <CardTitle className="text-base">{t('stats.activity_by_hour')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading || !data ? (
+            {isPeriodLoading ? (
               <Skeleton className="h-44 w-full" />
             ) : (
               <ResponsiveContainer width="100%" height={180}>
@@ -480,7 +540,7 @@ export default function StatsGroupPage() {
             <CardTitle className="text-base">{t('stats.activity_by_day')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading || !data ? (
+            {isPeriodLoading ? (
               <Skeleton className="h-44 w-full" />
             ) : (
               <ResponsiveContainer width="100%" height={180}>
@@ -507,16 +567,14 @@ export default function StatsGroupPage() {
           <CardTitle className="text-base">{t('stats.activity_by_month')}</CardTitle>
         </CardHeader>
         <CardContent>
-          {loading || !data ? (
+          {isPeriodLoading ? (
             <Skeleton className="h-48 w-full" />
-          ) : data.byMonth.length === 0 ? (
-            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-              No data
-            </div>
+          ) : (data?.byMonth.length ?? 0) === 0 ? (
+            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">No data</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart
-                data={data.byMonth.map((m) => ({ month: formatMonthLabel(m.month), count: m.count }))}
+                data={data!.byMonth.map((m) => ({ month: formatMonthLabel(m.month), count: m.count }))}
                 margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -537,23 +595,23 @@ export default function StatsGroupPage() {
             <CardTitle className="text-base">{t('stats.top_words')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading || !data ? (
+            {isPeriodLoading ? (
               <Skeleton className="h-64 w-full" />
-            ) : data.words.length === 0 ? (
+            ) : (data?.words.length ?? 0) === 0 ? (
               <div className="text-sm text-muted-foreground">No data</div>
             ) : (
-              <ResponsiveContainer width="100%" height={Math.max(220, data.words.length * 22)}>
+              <ResponsiveContainer width="100%" height={Math.max(220, (data?.words.length ?? 0) * 22)}>
                 <BarChart
-                  data={data.words}
+                  data={data!.words}
                   layout="vertical"
                   margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border" />
                   <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <YAxis type="category" dataKey="word" width={yAxisWidth(data.words.map((w) => w.word))} tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="word" width={yAxisWidth(data!.words.map((w) => w.word))} tick={{ fontSize: 10 }} />
                   <Tooltip formatter={(v) => [v, 'Occurrences']} />
                   <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                    {data.words.map((_, i) => (
+                    {data!.words.map((_, i) => (
                       <Cell key={i} fill={chartColors()[i % chartColors().length]} />
                     ))}
                   </Bar>
@@ -568,23 +626,23 @@ export default function StatsGroupPage() {
             <CardTitle className="text-base">{t('stats.top_mentions')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading || !data ? (
+            {isPeriodLoading ? (
               <Skeleton className="h-64 w-full" />
-            ) : data.mentions.length === 0 ? (
+            ) : (data?.mentions.length ?? 0) === 0 ? (
               <div className="text-sm text-muted-foreground">No data</div>
             ) : (
-              <ResponsiveContainer width="100%" height={Math.max(220, data.mentions.length * 22)}>
+              <ResponsiveContainer width="100%" height={Math.max(220, (data?.mentions.length ?? 0) * 22)}>
                 <BarChart
-                  data={data.mentions}
+                  data={data!.mentions}
                   layout="vertical"
                   margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border" />
                   <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <YAxis type="category" dataKey="mention" width={yAxisWidth(data.mentions.map((m) => m.mention))} tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="mention" width={yAxisWidth(data!.mentions.map((m) => m.mention))} tick={{ fontSize: 10 }} />
                   <Tooltip formatter={(v) => [v, 'Mentions']} />
                   <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                    {data.mentions.map((_, i) => (
+                    {data!.mentions.map((_, i) => (
                       <Cell key={i} fill={chartColors()[i % chartColors().length]} />
                     ))}
                   </Bar>

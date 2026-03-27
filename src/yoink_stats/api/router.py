@@ -98,6 +98,13 @@ _STOPWORDS = frozenset([
 ])
 
 
+def _since_param(days: int | None) -> datetime | None:
+    """Convert a days lookback window to an absolute UTC cutoff, or None for all-time."""
+    if days is None or days <= 0:
+        return None
+    return datetime.now(timezone.utc) - timedelta(days=days)
+
+
 @router.get("/groups")
 async def stats_groups(
     request: Request,
@@ -198,14 +205,19 @@ async def stats_top_users(
     request: Request,
     chat_id: int = Query(...),
     limit: int = Query(20, ge=1, le=100),
+    days: int | None = Query(None, ge=1, le=3650),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Top message senders with latest username/display_name from UserNameHistory."""
+    """Top message senders. Optional days window filters the message range."""
     await _check_group_access(chat_id, session, current_user, request)
-    from yoink_stats.storage.models import ChatMessage, UserNameHistory
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id, "limit": limit}
+    date_filter = "AND m.date >= :since" if since else ""
+    if since:
+        params["since"] = since
 
-    rows = (await session.execute(text("""
+    rows = (await session.execute(text(f"""
         SELECT
             m.from_user,
             COUNT(m.id) AS cnt,
@@ -222,10 +234,11 @@ async def stats_top_users(
         LEFT JOIN users u ON u.id = m.from_user
         WHERE m.chat_id = :chat_id
           AND m.from_user IS NOT NULL
+          {date_filter}
         GROUP BY m.from_user, un.username, un.display_name, u.username, u.first_name
         ORDER BY cnt DESC
         LIMIT :limit
-    """), {"chat_id": chat_id, "limit": limit})).fetchall()
+    """), params)).fetchall()
 
     return [
         {
@@ -242,20 +255,23 @@ async def stats_top_users(
 async def stats_activity_by_hour(
     request: Request,
     chat_id: int = Query(...),
+    days: int | None = Query(None, ge=1, le=3650),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Message count by hour of day (0-23)."""
+    """Message count by hour of day (0-23). Optional days window."""
     await _check_group_access(chat_id, session, current_user, request)
     from yoink_stats.storage.models import ChatMessage
 
+    since = _since_param(days)
     hour_col = cast(func.extract("hour", ChatMessage.date), Integer).label("hour")
-    rows = (await session.execute(
+    q = (
         select(hour_col, func.count(ChatMessage.id).label("count"))
         .where(ChatMessage.chat_id == chat_id)
-        .group_by(hour_col)
-        .order_by(hour_col)
-    )).fetchall()
+    )
+    if since:
+        q = q.where(ChatMessage.date >= since)
+    rows = (await session.execute(q.group_by(hour_col).order_by(hour_col))).fetchall()
 
     data = {row.hour: row.count for row in rows}
     return [{"hour": h, "count": data.get(h, 0)} for h in range(24)]
@@ -265,20 +281,25 @@ async def stats_activity_by_hour(
 async def stats_activity_by_day(
     request: Request,
     chat_id: int = Query(...),
+    days: int | None = Query(None, ge=1, le=3650),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Message count by day of week (0=Mon, 6=Sun)."""
+    """Message count by day of week (0=Mon, 6=Sun). Optional days window."""
     await _check_group_access(chat_id, session, current_user, request)
-    from yoink_stats.storage.models import ChatMessage
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id}
+    date_filter = "AND date >= :since" if since else ""
+    if since:
+        params["since"] = since
 
-    rows = (await session.execute(text("""
+    rows = (await session.execute(text(f"""
         SELECT ((EXTRACT(DOW FROM date)::int + 6) % 7) AS dow, COUNT(id) AS cnt
         FROM stats_messages
-        WHERE chat_id = :chat_id
+        WHERE chat_id = :chat_id {date_filter}
         GROUP BY dow
         ORDER BY dow
-    """), {"chat_id": chat_id})).fetchall()
+    """), params)).fetchall()
 
     data = {int(row.dow): row.cnt for row in rows}
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -292,22 +313,27 @@ async def stats_activity_by_day(
 async def stats_activity_by_week(
     request: Request,
     chat_id: int = Query(...),
+    days: int | None = Query(None, ge=1, le=3650),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Message count by day+hour for heatmap (day=0-6 Mon=0, hour=0-23)."""
+    """Message count by day+hour for heatmap (day=0-6 Mon=0, hour=0-23). Optional days window."""
     await _check_group_access(chat_id, session, current_user, request)
-    from yoink_stats.storage.models import ChatMessage
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id}
+    date_filter = "AND date >= :since" if since else ""
+    if since:
+        params["since"] = since
 
-    rows = (await session.execute(text("""
+    rows = (await session.execute(text(f"""
         SELECT
             ((EXTRACT(DOW FROM date)::int + 6) % 7) AS dow,
             EXTRACT(HOUR FROM date)::int AS hour,
             COUNT(id) AS cnt
         FROM stats_messages
-        WHERE chat_id = :chat_id
+        WHERE chat_id = :chat_id {date_filter}
         GROUP BY dow, hour
-    """), {"chat_id": chat_id})).fetchall()
+    """), params)).fetchall()
 
     return [
         {"day": int(row.dow), "hour": int(row.hour), "count": int(row.cnt)}
@@ -319,20 +345,20 @@ async def stats_activity_by_week(
 async def stats_message_types(
     request: Request,
     chat_id: int = Query(...),
+    days: int | None = Query(None, ge=1, le=3650),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Message breakdown by type."""
+    """Message breakdown by type. Optional days window."""
     await _check_group_access(chat_id, session, current_user, request)
     from yoink_stats.storage.models import ChatMessage
 
+    since = _since_param(days)
     cnt = func.count(ChatMessage.id).label("count")
-    rows = (await session.execute(
-        select(ChatMessage.msg_type, cnt)
-        .where(ChatMessage.chat_id == chat_id)
-        .group_by(ChatMessage.msg_type)
-        .order_by(cnt.desc())
-    )).fetchall()
+    q = select(ChatMessage.msg_type, cnt).where(ChatMessage.chat_id == chat_id)
+    if since:
+        q = q.where(ChatMessage.date >= since)
+    rows = (await session.execute(q.group_by(ChatMessage.msg_type).order_by(cnt.desc()))).fetchall()
 
     return [{"type": row.msg_type, "count": row.count} for row in rows]
 
@@ -374,17 +400,25 @@ async def stats_words(
     request: Request,
     chat_id: int = Query(...),
     limit: int = Query(20, ge=1, le=100),
+    days: int | None = Query(None, ge=1, le=3650),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Top words from text messages (simple split, stopwords excluded, min 3 chars)."""
+    """Top words from text messages. Optional days window."""
     await _check_group_access(chat_id, session, current_user, request)
-    rows = (await session.execute(text(r"""
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id, "limit": limit}
+    date_filter = "AND date >= :since" if since else ""
+    if since:
+        params["since"] = since
+
+    rows = (await session.execute(text(rf"""
         WITH messages AS (
             SELECT COALESCE(text, '') || ' ' || COALESCE(caption, '') AS body
             FROM stats_messages
             WHERE chat_id = :chat_id
               AND (text IS NOT NULL OR caption IS NOT NULL)
+              {date_filter}
         ),
         words AS (
             SELECT lower(regexp_replace(w, '[^\w]|[\d_]', '', 'g')) AS word
@@ -404,7 +438,7 @@ async def stats_words(
         GROUP BY word
         ORDER BY cnt DESC
         LIMIT :limit
-    """), {"chat_id": chat_id, "limit": limit})).fetchall()
+    """), params)).fetchall()
 
     return [{"word": row.word, "count": int(row.cnt)} for row in rows]
 
@@ -619,22 +653,95 @@ async def stats_mention_stats(
     request: Request,
     chat_id: int = Query(...),
     limit: int = Query(20, ge=1, le=100),
+    days: int | None = Query(None, ge=1, le=3650),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Top @mentions extracted from all text messages in the chat."""
+    """Top @mentions extracted from text messages. Optional days window."""
     await _check_group_access(chat_id, session, current_user, request)
-    rows = (await session.execute(text("""
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id, "limit": limit}
+    date_filter = "AND date >= :since" if since else ""
+    if since:
+        params["since"] = since
+
+    rows = (await session.execute(text(f"""
         SELECT lower(m[1]) AS mention, COUNT(*) AS cnt
         FROM stats_messages,
-             regexp_matches(COALESCE(text, ''), '@([a-zA-Z0-9_]{4,})', 'g') AS m
-        WHERE chat_id = :chat_id
+             regexp_matches(COALESCE(text, ''), '@([a-zA-Z0-9_]{{4,}})', 'g') AS m
+        WHERE chat_id = :chat_id {date_filter}
         GROUP BY mention
         ORDER BY cnt DESC
         LIMIT :limit
-    """), {"chat_id": chat_id, "limit": limit})).fetchall()
+    """), params)).fetchall()
 
     return [{"mention": f"@{row.mention}", "count": int(row.cnt)} for row in rows]
+
+
+@router.get("/daily-activity")
+async def stats_daily_activity(
+    request: Request,
+    chat_id: int = Query(...),
+    days: int | None = Query(None, ge=1, le=3650),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+) -> list[dict]:
+    """Per-day message count and unique active users (DAU). Optional days window."""
+    await _check_group_access(chat_id, session, current_user, request)
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id}
+    date_filter = "AND date >= :since" if since else ""
+    if since:
+        params["since"] = since
+
+    rows = (await session.execute(text(f"""
+        SELECT
+            DATE(date AT TIME ZONE 'UTC') AS day,
+            COUNT(id) AS messages,
+            COUNT(DISTINCT from_user) FILTER (WHERE from_user IS NOT NULL) AS dau
+        FROM stats_messages
+        WHERE chat_id = :chat_id {date_filter}
+        GROUP BY day
+        ORDER BY day
+    """), params)).fetchall()
+
+    return [
+        {"date": str(row.day), "messages": int(row.messages), "dau": int(row.dau)}
+        for row in rows
+    ]
+
+
+@router.get("/member-events")
+async def stats_member_events(
+    request: Request,
+    chat_id: int = Query(...),
+    days: int | None = Query(None, ge=1, le=3650),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+) -> list[dict]:
+    """Daily join/leave counts from user events. Optional days window."""
+    await _check_group_access(chat_id, session, current_user, request)
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id}
+    date_filter = "AND date >= :since" if since else ""
+    if since:
+        params["since"] = since
+
+    rows = (await session.execute(text(f"""
+        SELECT
+            DATE(date AT TIME ZONE 'UTC') AS day,
+            COUNT(*) FILTER (WHERE event = 'joined') AS joined,
+            COUNT(*) FILTER (WHERE event = 'left') AS left_count
+        FROM stats_user_events
+        WHERE chat_id = :chat_id {date_filter}
+        GROUP BY day
+        ORDER BY day
+    """), params)).fetchall()
+
+    return [
+        {"date": str(row.day), "joined": int(row.joined), "left": int(row.left_count)}
+        for row in rows
+    ]
 
 
 class ImportStatus(BaseModel):
