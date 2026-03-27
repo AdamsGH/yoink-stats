@@ -12,7 +12,7 @@ import type { StatsGroup } from '@stats/types'
 function GroupCardSkeleton() {
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="px-4 py-3">
         <Skeleton className="h-5 w-40" />
       </CardHeader>
       <CardContent className="space-y-3">
@@ -62,7 +62,7 @@ export default function StatsIndexPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {groups.map((group) => (
             <Card key={group.chat_id} className="flex flex-col">
-              <CardHeader className="pb-2">
+              <CardHeader className="px-4 py-3">
                 <CardTitle className="text-base">{group.title}</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col justify-between gap-3">

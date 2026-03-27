@@ -254,13 +254,11 @@ export default function ImportPage() {
 
   return (
     <div className="space-y-5">
-
-
       <Card>
-        <CardHeader>
+        <CardHeader className="px-4 py-3">
           <CardTitle className="text-base">Import Telegram Desktop export</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="px-4 py-3 space-y-4">
           <div className="space-y-1.5">
             <Label>Target group</Label>
             {groups.length > 0 ? (
@@ -374,7 +372,7 @@ export default function ImportPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="px-4 py-3">
           <CardTitle className="text-base">How to export chat history</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
