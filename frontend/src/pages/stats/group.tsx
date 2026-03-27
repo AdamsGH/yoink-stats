@@ -17,6 +17,7 @@ import {
   YAxis,
 } from 'recharts'
 
+
 import { Download } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
@@ -439,8 +440,10 @@ export default function StatsGroupPage() {
                     layout="vertical"
                     margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
                     onClick={(state) => {
-                      if (state?.activePayload?.[0]?.payload?.userId) {
-                        navigate(`/stats/${numericChatId}/user/${state.activePayload[0].payload.userId}?group=${encodeURIComponent(groupTitle)}`)
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const payload = (state as any)?.activePayload?.[0]?.payload
+                      if (payload?.userId) {
+                        navigate(`/stats/${numericChatId}/user/${payload.userId}?group=${encodeURIComponent(groupTitle)}`)
                       }
                     }}
                     className="cursor-pointer"

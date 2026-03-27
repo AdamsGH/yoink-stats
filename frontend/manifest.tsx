@@ -23,6 +23,8 @@ export const statsPlugin: PluginManifest = {
   navGroups: [
     {
       label: 'Stats',
+      i18nKey: 'nav.stats',
+      icon: <BarChart2 className="h-4 w-4" />,
       minRole: ['owner', 'admin', 'moderator', 'user'],
       items: [
         { label: 'Chat Stats',     i18nKey: 'nav.chat_stats',     path: '/stats',        icon: <BarChart2 className="h-4 w-4" />, minRole: ['owner', 'admin', 'moderator', 'user'] },
