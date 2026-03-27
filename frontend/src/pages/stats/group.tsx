@@ -23,11 +23,12 @@ import {
 import { Download } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
-import { cn } from '@core/lib/utils'
 import { Button } from '@core/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
 import { Skeleton } from '@core/components/ui/skeleton'
 import { toast } from '@core/components/ui/toast'
+import { chartColors, PeriodToggle, StatCard, StatCardSkeleton } from '@core/components/charts'
+import type { Period } from '@core/components/charts'
 import type {
   DayActivity,
   HourActivity,
@@ -40,80 +41,7 @@ import type {
   WordCount,
 } from '@stats/types'
 
-const CTP_FALLBACKS = [
-  '#8aadf4', '#c6a0f6', '#ed8796', '#a6da95', '#f5a97f',
-  '#91d7e3', '#eed49f', '#f5bde6', '#8bd5ca', '#b7bdf8',
-]
-const CTP_VARS = [
-  '--ctp-blue', '--ctp-mauve', '--ctp-red', '--ctp-green', '--ctp-peach',
-  '--ctp-sky', '--ctp-yellow', '--ctp-pink', '--ctp-teal', '--ctp-lavender',
-]
-
-let _chartColors: string[] | null = null
-function chartColors(): string[] {
-  if (_chartColors) return _chartColors
-  const style = getComputedStyle(document.documentElement)
-  _chartColors = CTP_VARS.map((name, i) => style.getPropertyValue(name).trim() || CTP_FALLBACKS[i])
-  return _chartColors
-}
-
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-const PERIOD_OPTIONS = [
-  { label: '7d', value: 7 },
-  { label: '30d', value: 30 },
-  { label: '90d', value: 90 },
-  { label: 'All', value: 0 },
-] as const
-
-type Period = (typeof PERIOD_OPTIONS)[number]['value']
-
-function PeriodToggle({ value, onChange }: { value: Period; onChange: (v: Period) => void }) {
-  return (
-    <div className="flex rounded-md border">
-      {PERIOD_OPTIONS.map((opt) => (
-        <Button
-          key={opt.value}
-          variant="ghost"
-          size="sm"
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            'h-7 rounded-none px-2.5 text-xs first:rounded-l-md last:rounded-r-md',
-            value === opt.value && 'bg-muted font-semibold',
-          )}
-        >
-          {opt.label}
-        </Button>
-      ))}
-    </div>
-  )
-}
-
-function StatCard({ label, value }: { label: string; value: string | number | null }) {
-  const display = value === null ? '-' : typeof value === 'number' ? value.toLocaleString() : value
-  const isLong = typeof display === 'string' && display.length > 8
-  return (
-    <Card className="select-none overflow-hidden">
-      <CardContent className="pt-4 pb-3">
-        <div className={`font-bold tabular-nums text-primary truncate ${isLong ? 'text-base' : 'text-2xl'}`}>
-          {display}
-        </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function StatCardSkeleton() {
-  return (
-    <Card>
-      <CardContent className="pt-4 pb-3 space-y-2">
-        <Skeleton className="h-7 w-20" />
-        <Skeleton className="h-3 w-28" />
-      </CardContent>
-    </Card>
-  )
-}
 
 function formatDate(iso: string | null): string {
   if (!iso) return '-'

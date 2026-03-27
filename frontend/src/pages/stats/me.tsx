@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/ca
 import { Skeleton } from '@core/components/ui/skeleton'
 import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
+import { chartColors } from '@core/components/charts'
 
 /* ── types ────────────────────────────────────────────────────── */
 
@@ -39,17 +40,7 @@ interface DlOverview {
   downloads_by_day: Array<{ date: string; count: number }>
 }
 
-/* ── theme colors ─────────────────────────────────────────────── */
 
-const CTP_FALLBACKS = ['#8aadf4', '#c6a0f6', '#a6da95', '#f5a97f', '#91d7e3', '#f5bde6', '#eed49f', '#f0c6c6']
-const CTP_VARS = ['--ctp-blue', '--ctp-mauve', '--ctp-green', '--ctp-peach', '--ctp-sky', '--ctp-pink', '--ctp-yellow', '--ctp-flamingo']
-let _colors: string[] | null = null
-function chartColors() {
-  if (_colors) return _colors
-  const s = getComputedStyle(document.documentElement)
-  _colors = CTP_VARS.map((v, i) => s.getPropertyValue(v).trim() || CTP_FALLBACKS[i])
-  return _colors
-}
 
 /* ── reusable components ──────────────────────────────────────── */
 
