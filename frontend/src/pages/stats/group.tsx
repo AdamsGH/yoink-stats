@@ -302,11 +302,11 @@ export default function StatsGroupPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button variant="ghost" size="sm" onClick={() => navigate('/stats')}>
-          ← Back
+          ← {t('stats.back')}
         </Button>
-        <h1 className="text-2xl font-bold">{loading ? <Skeleton className="h-7 w-48" /> : groupTitle}</h1>
+        <span className="text-sm font-medium">{loading ? <Skeleton className="h-5 w-40 inline-block" /> : groupTitle}</span>
         {data && (
           <div className="ml-auto flex gap-1">
             <Button variant="outline" size="sm" onClick={() => exportData('json')}>

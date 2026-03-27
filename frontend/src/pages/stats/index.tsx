@@ -46,10 +46,7 @@ export default function StatsIndexPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{t('stats.title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('stats.select_group')}</p>
-      </div>
+      <p className="text-sm text-muted-foreground">{t('stats.select_group')}</p>
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -59,7 +56,7 @@ export default function StatsIndexPage() {
         </div>
       ) : groups.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No monitored groups yet. Use /group stats on in a group to enable stats.
+          {t('stats.no_groups')}
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -71,7 +68,7 @@ export default function StatsIndexPage() {
               <CardContent className="flex flex-1 flex-col justify-between gap-3">
                 <div className="text-sm text-muted-foreground">
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums">
-                    {group.message_count.toLocaleString()} messages
+                    {t('stats.messages_count', { count: group.message_count })}
                   </span>
                 </div>
                 <Button
@@ -80,7 +77,7 @@ export default function StatsIndexPage() {
                   className="self-start"
                   onClick={() => navigate(`/stats/${group.chat_id}`)}
                 >
-                  View stats →
+                  {t('stats.view')}
                 </Button>
               </CardContent>
             </Card>

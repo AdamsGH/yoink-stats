@@ -254,7 +254,7 @@ export default function ImportPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold">Import Chat History</h1>
+
 
       <Card>
         <CardHeader>
