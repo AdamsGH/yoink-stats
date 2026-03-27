@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@core/components/ui/tabs'
+import ImportPage from '@stats/pages/import/index'
 import {
   Bar,
   BarChart,
@@ -319,11 +321,18 @@ export default function StatsGroupPage() {
         )}
       </div>
 
-      {/* Period toggle - applies to all charts below */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">Period</span>
-        <PeriodToggle value={period} onChange={setPeriod} />
-      </div>
+      <Tabs defaultValue="stats">
+        <TabsList>
+          <TabsTrigger value="stats">{t('stats.tab_stats')}</TabsTrigger>
+          <TabsTrigger value="import">{t('stats.tab_import')}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="stats" className="space-y-4 mt-4">
+          {/* Period toggle */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Period</span>
+            <PeriodToggle value={period} onChange={setPeriod} />
+          </div>
 
       {/* Overview KPIs (all-time, no period filter) */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -654,7 +663,13 @@ export default function StatsGroupPage() {
             )}
           </CardContent>
         </Card>
-      </div>
+        </div>
+        </TabsContent>
+
+        <TabsContent value="import" className="mt-4">
+          <ImportPage />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
