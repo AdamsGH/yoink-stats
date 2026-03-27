@@ -33,32 +33,38 @@ class StatsPlugin:
                 scope="groups",
                 descriptions={"ru": "Статистика чата"},
             ),
+            CommandSpec(
+                command="stats",
+                description="Chat statistics",
+                min_role="user",
+                scope="private",
+                descriptions={"ru": "Статистика чата"},
+            ),
+
         ]
 
     def get_help_section(self, role: str, lang: str) -> str:
-        from yoink.core.i18n import t
-
-        _ROLE_RANK = {"user": 0, "moderator": 1, "admin": 2, "owner": 3}
-        rank = _ROLE_RANK.get(role, 0)
-
-        # Stats is a moderator+ feature; users don't see it
-        if rank < _ROLE_RANK.get("moderator", 1):
-            return ""
-
-        title = "Chat Stats"
-        body = (
-            "/stats counts   - top active users\n"
-            "/stats hours    - activity by hour\n"
-            "/stats days     - activity by day of week\n"
-            "/stats week     - last 7 days chart\n"
-            "/stats history  - message history\n"
-            "/stats user [ID] - personal summary\n"
-            "/stats words    - top words\n"
-            "/stats random   - random quote\n"
-            "/stats rank ID  - user rank\n"
-            "/stats streak ID - activity streak\n"
-            "\n<i>All subcommands support <code>-q QUERY</code> for full-text search.</i>"
-        )
+        _titles = {"en": "Chat Stats", "ru": "Статистика чата"}
+        _bodies = {
+            "en": (
+                "/stats — run in a group to query its stats\n"
+                "/stats user — your personal summary (works in private)\n"
+                "/stats counts · hours · days · week · history · words · random\n"
+                "/stats rank · streak · ecdf · corr · delta · titles · mention\n"
+                "\n<i>Add <code>-q QUERY</code> for full-text search, "
+                "<code>--start</code>/<code>--end</code> for date ranges.</i>"
+            ),
+            "ru": (
+                "/stats — запускай в группе для просмотра её статистики\n"
+                "/stats user — личная сводка (работает в личке)\n"
+                "/stats counts · hours · days · week · history · words · random\n"
+                "/stats rank · streak · ecdf · corr · delta · titles · mention\n"
+                "\n<i>Добавь <code>-q ЗАПРОС</code> для поиска по тексту, "
+                "<code>--start</code>/<code>--end</code> для диапазона дат.</i>"
+            ),
+        }
+        title = _titles.get(lang, _titles["en"])
+        body = _bodies.get(lang, _bodies["en"])
         return f"<blockquote expandable><b>{title}</b>\n{body}</blockquote>"
 
     def get_handlers(self) -> list:

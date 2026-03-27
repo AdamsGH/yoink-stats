@@ -1,50 +1,107 @@
 stats:
   not_available: "Stats service not available."
-  no_data: "No data available for this group."
-  generating: "Generating stats..."
-  help: |
-    /stats [subcommand] [options]
-    Subcommands: counts, hours, days, week, history, user, types, words, random, corr, delta
+  no_data: "No data for this group."
+  no_data_user: "No messages found for user {user_id} in this group."
+  no_word_data: "No word data available."
+  no_text_messages: "No text messages found."
+  no_correlation_data: "Not enough data to compute correlation."
+  no_reply_data: "Not enough reply data to compute response time."
+  no_title_changes: "No title changes recorded for this group."
+  no_mentions: "No @mentions found in this group."
+  error: "Error: {error}"
 
   counts:
-    title: "Top {n} message senders"
-    row: "{rank}. {name} - {count} messages"
+    header: "Top {n} senders{type_label}:"
+    col_header: "{rank:<4} {user:<24} {messages:>8}"
+    separator: "----------------------------------------"
 
   hours:
-    title: "Activity by hour of day"
+    header: "Hour | Count  | Bar"
+    separator: "------------------------------------"
 
   days:
-    title: "Activity by day of week"
+    header: "Day       | Count  | Bar"
+    separator: "--------------------------------------"
 
   week:
-    title: "Weekly activity heatmap"
+    header: "Weekday/hour heatmap (max={max} msgs/slot):"
+    footer: "(max={max} msgs in a single day+hour slot)"
 
   history:
-    title: "Message history"
+    row: "{date} | {count:>5}"
 
   user:
-    title: "User summary"
-    total: "Total messages: {count}"
-    avg: "Average per day: {avg:.1f}"
-    first: "First message: {date}"
-    last: "Last message: {date}"
+    header: "User: {identity} (id={user_id})"
+    total: "Total messages: {total}"
+    avg: "Avg per day: {avg:.1f}"
+    first: "First message: {date} UTC"
+    last: "Last message:  {date} UTC"
     top_type: "Top type: {type}"
+    types_header: "Message types:"
+    type_row: "  {type:<20} {count:>6} ({pct:.1f}%)"
 
   types:
-    title: "Message types"
+    header: "Message types:"
+    row: "{type:<20} {count:>6} ({pct:.1f}%)"
+    row_bar: "{type:<20} {count:>6} {pct:>5.1f}% | {bar}"
 
   words:
-    title: "Top words"
+    header: "Top {n} words:"
+    separator: "----------------------------------------"
+    row: "{word:<20} {count:>6} | {bar}"
 
   random:
-    title: "Random quote"
+    quote: '"{text}"\n\n- {author}, {date}'
 
   corr:
-    title: "Activity correlation"
+    label_vs_chat: "user {user_id} vs. chat"
+    label_vs_user: "user {user_id} vs. user {target_id}"
+    header: "Pearson correlation ({label}):"
     result: "r = {value:.4f}"
+    interp_strong_pos: "strong positive correlation (both active on same days)"
+    interp_mod_pos: "moderate positive correlation"
+    interp_weak: "weak or no correlation"
+    interp_mod_neg: "moderate negative correlation"
+    interp_strong_neg: "strong negative correlation (active on different days)"
 
   delta:
-    title: "Median response time"
+    label_vs_others: "user {user_id} replying to others"
+    label_vs_user: "user {user_id} replying to user {target_id}"
+    header: "Median response time ({label}):"
     result: "{time} (based on {count} replies)"
+    seconds: "{n:.0f} seconds"
+    minutes: "{n:.1f} minutes"
+    hours: "{n:.1f} hours"
 
-  error: "Failed to generate stats: {error}"
+  ecdf:
+    header: "Message distribution (top {n} users):"
+    col_header: " {rank:>4}  | {user:<20} | {count:>7}  | Cumul%"
+    separator: "-------+----------------------+---------+--------"
+
+  streak:
+    header: "Streak stats for {identity}:"
+    current: "Current streak: {n} {days} ({start} - {end})"
+    longest: "Longest streak: {n} {days} ({start} - {end})"
+    day_one: "day"
+    day_many: "days"
+
+  rank:
+    result: "{identity} rank: #{rank} of {total} users"
+    messages: "Messages: {count} ({pct:.1f}% of total {total_msgs})"
+
+  titles:
+    header: "Chat title history ({n} {changes}):"
+    col_header: "{date:<12} | {title:<30} | Changed by"
+    separator: "------------------------------------------------------------"
+    change_one: "change"
+    change_many: "changes"
+
+  mention:
+    header: "Top {n} @mentions in chat:"
+    col_header: "{mention:<25} | Count"
+    separator: "-----------------------------------"
+    row: "@{mention:<24} | {count:>6}"
+    by_header: "@mentions of {identity}:"
+    from_header: "@mentions by {identity}:"
+    by_row: "  {mention:<22} | {count:>5}"
+    no_mentions_section: "  (no mentions found)"

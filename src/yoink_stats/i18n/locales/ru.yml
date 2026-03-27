@@ -1,50 +1,107 @@
 stats:
   not_available: "Сервис статистики недоступен."
   no_data: "Данные для этой группы отсутствуют."
-  generating: "Формирую статистику..."
-  help: |
-    /stats [подкоманда] [параметры]
-    Подкоманды: counts, hours, days, week, history, user, types, words, random, corr, delta
+  no_data_user: "Сообщения пользователя {user_id} в этой группе не найдены."
+  no_word_data: "Данные о словах отсутствуют."
+  no_text_messages: "Текстовые сообщения не найдены."
+  no_correlation_data: "Недостаточно данных для вычисления корреляции."
+  no_reply_data: "Недостаточно данных для вычисления времени ответа."
+  no_title_changes: "История изменений названия группы пуста."
+  no_mentions: "@упоминания в этой группе не найдены."
+  error: "Ошибка: {error}"
 
   counts:
-    title: "Топ {n} отправителей сообщений"
-    row: "{rank}. {name} - {count} сообщений"
+    header: "Топ {n} отправителей{type_label}:"
+    col_header: "{rank:<4} {user:<24} {messages:>8}"
+    separator: "----------------------------------------"
 
   hours:
-    title: "Активность по часам суток"
+    header: "Час  | Кол-во | Бар"
+    separator: "------------------------------------"
 
   days:
-    title: "Активность по дням недели"
+    header: "День      | Кол-во | Бар"
+    separator: "--------------------------------------"
 
   week:
-    title: "Тепловая карта активности за неделю"
+    header: "Тепловая карта по дням/часам (макс={max} сообщ./слот):"
+    footer: "(макс. {max} сообщений в одном слоте день+час)"
 
   history:
-    title: "История сообщений"
+    row: "{date} | {count:>5}"
 
   user:
-    title: "Сводка по пользователю"
-    total: "Всего сообщений: {count}"
+    header: "Пользователь: {identity} (id={user_id})"
+    total: "Всего сообщений: {total}"
     avg: "В среднем в день: {avg:.1f}"
-    first: "Первое сообщение: {date}"
-    last: "Последнее сообщение: {date}"
+    first: "Первое сообщение: {date} UTC"
+    last: "Последнее сообщение: {date} UTC"
     top_type: "Частый тип: {type}"
+    types_header: "Типы сообщений:"
+    type_row: "  {type:<20} {count:>6} ({pct:.1f}%)"
 
   types:
-    title: "Типы сообщений"
+    header: "Типы сообщений:"
+    row: "{type:<20} {count:>6} ({pct:.1f}%)"
+    row_bar: "{type:<20} {count:>6} {pct:>5.1f}% | {bar}"
 
   words:
-    title: "Топ слов"
+    header: "Топ {n} слов:"
+    separator: "----------------------------------------"
+    row: "{word:<20} {count:>6} | {bar}"
 
   random:
-    title: "Случайная цитата"
+    quote: '"{text}"\n\n- {author}, {date}'
 
   corr:
-    title: "Корреляция активности"
+    label_vs_chat: "пользователь {user_id} vs. чат"
+    label_vs_user: "пользователь {user_id} vs. пользователь {target_id}"
+    header: "Корреляция Пирсона ({label}):"
     result: "r = {value:.4f}"
+    interp_strong_pos: "сильная положительная (оба активны в одни дни)"
+    interp_mod_pos: "умеренная положительная"
+    interp_weak: "слабая или отсутствует"
+    interp_mod_neg: "умеренная отрицательная"
+    interp_strong_neg: "сильная отрицательная (активны в разные дни)"
 
   delta:
-    title: "Медианное время ответа"
+    label_vs_others: "пользователь {user_id} отвечает другим"
+    label_vs_user: "пользователь {user_id} отвечает пользователю {target_id}"
+    header: "Медианное время ответа ({label}):"
     result: "{time} (на основе {count} ответов)"
+    seconds: "{n:.0f} сек"
+    minutes: "{n:.1f} мин"
+    hours: "{n:.1f} ч"
 
-  error: "Не удалось сформировать статистику: {error}"
+  ecdf:
+    header: "Распределение сообщений (топ {n} пользователей):"
+    col_header: " {rank:>4}  | {user:<20} | {count:>7}  | Накопл.%"
+    separator: "-------+----------------------+---------+----------"
+
+  streak:
+    header: "Серия активности — {identity}:"
+    current: "Текущая серия: {n} {days} ({start} - {end})"
+    longest: "Лучшая серия:  {n} {days} ({start} - {end})"
+    day_one: "день"
+    day_many: "дней"
+
+  rank:
+    result: "Место {identity}: #{rank} из {total}"
+    messages: "Сообщений: {count} ({pct:.1f}% от {total_msgs})"
+
+  titles:
+    header: "История названий чата ({n} {changes}):"
+    col_header: "{date:<12} | {title:<30} | Кто изменил"
+    separator: "------------------------------------------------------------"
+    change_one: "изменение"
+    change_many: "изменений"
+
+  mention:
+    header: "Топ {n} @упоминаний в чате:"
+    col_header: "{mention:<25} | Кол-во"
+    separator: "-----------------------------------"
+    row: "@{mention:<24} | {count:>6}"
+    by_header: "@упоминания {identity}:"
+    from_header: "@упоминания от {identity}:"
+    by_row: "  {mention:<22} | {count:>5}"
+    no_mentions_section: "  (упоминания не найдены)"
