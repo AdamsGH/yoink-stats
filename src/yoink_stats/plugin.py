@@ -23,6 +23,18 @@ class StatsPlugin:
         from yoink_stats.storage.models import ChatMessage, UserEvent, UserNameHistory
         return [ChatMessage, UserEvent, UserNameHistory]
 
+    def get_features(self) -> list:
+        from yoink.core.plugin import FeatureSpec
+        return [
+            FeatureSpec(
+                plugin="stats",
+                feature="stats",
+                label="Chat Statistics",
+                description="Access to /stats command and analytics dashboard",
+                default_min_role="user",
+            ),
+        ]
+
     def get_commands(self) -> list:
         from yoink.core.plugin import CommandSpec
         return [
@@ -40,7 +52,6 @@ class StatsPlugin:
                 scope="private",
                 descriptions={"ru": "Статистика чата"},
             ),
-
         ]
 
     def get_help_section(self, role: str, lang: str) -> str:
