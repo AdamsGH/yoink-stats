@@ -667,7 +667,7 @@ export default function StatsGroupPage() {
         </TabsContent>
 
         <TabsContent value="import" className="mt-4">
-          <ImportPage />
+          <ImportPage defaultChatId={String(numericChatId)} />
         </TabsContent>
       </Tabs>
     </div>

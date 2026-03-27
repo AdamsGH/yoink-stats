@@ -138,9 +138,9 @@ function StatusCard({ status }: { status: ImportStatus }) {
 
 type ImportMode = 'upload' | 'path'
 
-export default function ImportPage() {
+export default function ImportPage({ defaultChatId }: { defaultChatId?: string } = {}) {
   const [groups, setGroups] = useState<StatsGroup[]>([])
-  const [chatId, setChatId] = useState('')
+  const [chatId, setChatId] = useState(defaultChatId ?? '')
   const [mode, setMode] = useState<ImportMode>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [serverPath, setServerPath] = useState('')
@@ -150,6 +150,7 @@ export default function ImportPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
+    if (defaultChatId) return
     apiClient
       .get<StatsGroup[]>('/stats/groups')
       .then((r) => {
@@ -157,7 +158,7 @@ export default function ImportPage() {
         if (r.data.length === 1) setChatId(String(r.data[0].chat_id))
       })
       .catch(() => {})
-  }, [])
+  }, [defaultChatId])
 
   useEffect(() => {
     return () => {
@@ -259,33 +260,35 @@ export default function ImportPage() {
           <CardTitle className="text-base">Import Telegram Desktop export</CardTitle>
         </CardHeader>
         <CardContent className="px-4 py-3 space-y-4">
-          <div className="space-y-1.5">
-            <Label>Target group</Label>
-            {groups.length > 0 ? (
-              <select
-                value={chatId}
-                onChange={(e) => setChatId(e.target.value)}
-                disabled={submitting}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Select a group...</option>
-                {groups.map((g) => (
-                  <option key={g.chat_id} value={String(g.chat_id)}>
-                    {g.title} ({g.chat_id})
-                  </option>
-                ))}
-                <option value="__custom">Enter manually...</option>
-              </select>
-            ) : null}
-            {(groups.length === 0 || chatId === '__custom') && (
-              <Input
-                placeholder="e.g. -1001234567890"
-                value={chatId === '__custom' ? '' : chatId}
-                onChange={(e) => setChatId(e.target.value)}
-                disabled={submitting}
-              />
-            )}
-          </div>
+          {!defaultChatId && (
+            <div className="space-y-1.5">
+              <Label>Target group</Label>
+              {groups.length > 0 ? (
+                <select
+                  value={chatId}
+                  onChange={(e) => setChatId(e.target.value)}
+                  disabled={submitting}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Select a group...</option>
+                  {groups.map((g) => (
+                    <option key={g.chat_id} value={String(g.chat_id)}>
+                      {g.title} ({g.chat_id})
+                    </option>
+                  ))}
+                  <option value="__custom">Enter manually...</option>
+                </select>
+              ) : null}
+              {(groups.length === 0 || chatId === '__custom') && (
+                <Input
+                  placeholder="e.g. -1001234567890"
+                  value={chatId === '__custom' ? '' : chatId}
+                  onChange={(e) => setChatId(e.target.value)}
+                  disabled={submitting}
+                />
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Method</Label>
