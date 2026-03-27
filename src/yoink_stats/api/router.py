@@ -105,7 +105,7 @@ def _since_param(days: int | None) -> datetime | None:
     return datetime.now(timezone.utc) - timedelta(days=days)
 
 
-@router.get("/groups")
+@router.get("/groups", summary="List monitored groups with message counts")
 async def stats_groups(
     request: Request,
     session: AsyncSession = Depends(get_db),
@@ -163,7 +163,7 @@ async def stats_groups(
     ]
 
 
-@router.get("/overview")
+@router.get("/overview", summary="Chat statistics overview")
 async def stats_overview(
     request: Request,
     chat_id: int = Query(...),
@@ -200,7 +200,7 @@ async def stats_overview(
     }
 
 
-@router.get("/top-users")
+@router.get("/top-users", summary="Top users by message count")
 async def stats_top_users(
     request: Request,
     chat_id: int = Query(...),
@@ -251,7 +251,7 @@ async def stats_top_users(
     ]
 
 
-@router.get("/activity-by-hour")
+@router.get("/activity-by-hour", summary="Message activity distribution by hour of day")
 async def stats_activity_by_hour(
     request: Request,
     chat_id: int = Query(...),
@@ -277,7 +277,7 @@ async def stats_activity_by_hour(
     return [{"hour": h, "count": data.get(h, 0)} for h in range(24)]
 
 
-@router.get("/activity-by-day")
+@router.get("/activity-by-day", summary="Message activity distribution by day of week")
 async def stats_activity_by_day(
     request: Request,
     chat_id: int = Query(...),
@@ -309,7 +309,7 @@ async def stats_activity_by_day(
     ]
 
 
-@router.get("/activity-by-week")
+@router.get("/activity-by-week", summary="Weekly message volume over time")
 async def stats_activity_by_week(
     request: Request,
     chat_id: int = Query(...),
@@ -341,7 +341,7 @@ async def stats_activity_by_week(
     ]
 
 
-@router.get("/message-types")
+@router.get("/message-types", summary="Breakdown of message types (text/photo/video/etc)")
 async def stats_message_types(
     request: Request,
     chat_id: int = Query(...),
@@ -363,7 +363,7 @@ async def stats_message_types(
     return [{"type": row.msg_type, "count": row.count} for row in rows]
 
 
-@router.get("/history")
+@router.get("/history", summary="Daily message count history")
 async def stats_history(
     request: Request,
     chat_id: int = Query(...),
@@ -395,7 +395,7 @@ async def stats_history(
     return [{"date": str(row.day), "count": int(row.cnt)} for row in rows]
 
 
-@router.get("/words")
+@router.get("/words", summary="Top words / word frequency")
 async def stats_words(
     request: Request,
     chat_id: int = Query(...),
@@ -443,7 +443,7 @@ async def stats_words(
     return [{"word": row.word, "count": int(row.cnt)} for row in rows]
 
 
-@router.get("/user-stats")
+@router.get("/user-stats", summary="Per-user statistics breakdown")
 async def stats_user(
     request: Request,
     chat_id: int = Query(...),
@@ -511,7 +511,7 @@ async def stats_user(
     }
 
 
-@router.get("/activity-by-month")
+@router.get("/activity-by-month", summary="Monthly message volume")
 async def stats_activity_by_month(
     request: Request,
     chat_id: int = Query(...),
@@ -548,7 +548,7 @@ async def stats_activity_by_month(
     return [{"month": row.month, "count": int(row.cnt)} for row in rows]
 
 
-@router.get("/ecdf")
+@router.get("/ecdf", summary="Empirical CDF of messages per user")
 async def stats_ecdf(
     request: Request,
     chat_id: int = Query(...),
@@ -608,7 +608,7 @@ async def stats_ecdf(
     ]
 
 
-@router.get("/title-history")
+@router.get("/title-history", summary="Chat title change history")
 async def stats_title_history(
     request: Request,
     chat_id: int = Query(...),
@@ -648,7 +648,7 @@ async def stats_title_history(
     ]
 
 
-@router.get("/mention-stats")
+@router.get("/mention-stats", summary="Mention frequency between users")
 async def stats_mention_stats(
     request: Request,
     chat_id: int = Query(...),
@@ -678,7 +678,7 @@ async def stats_mention_stats(
     return [{"mention": f"@{row.mention}", "count": int(row.cnt)} for row in rows]
 
 
-@router.get("/daily-activity")
+@router.get("/daily-activity", summary="Daily active users (DAU) time series")
 async def stats_daily_activity(
     request: Request,
     chat_id: int = Query(...),
@@ -711,7 +711,7 @@ async def stats_daily_activity(
     ]
 
 
-@router.get("/member-events")
+@router.get("/member-events", summary="Group join/leave events over time")
 async def stats_member_events(
     request: Request,
     chat_id: int = Query(...),
@@ -758,7 +758,7 @@ class ImportStatus(BaseModel):
 _import_jobs: dict[str, ImportStatus] = {}
 
 
-@router.post("/import", response_model=ImportStatus)
+@router.post("/import", response_model=ImportStatus, summary="Import Telegram Desktop chat export (result.json)")
 async def import_history(
     background_tasks: BackgroundTasks,
     chat_id: int = Query(..., description="Telegram chat_id to associate messages with"),
@@ -837,7 +837,7 @@ class ImportByPathRequest(BaseModel):
     chat_id: int
 
 
-@router.post("/import/by-path", response_model=ImportStatus)
+@router.post("/import/by-path", response_model=ImportStatus, summary="Import from server-side file path (owner only)")
 async def import_history_by_path(
     body: ImportByPathRequest,
     background_tasks: BackgroundTasks,
@@ -888,7 +888,7 @@ async def import_history_by_path(
     return _import_jobs[job_id]
 
 
-@router.get("/import/{job_id}", response_model=ImportStatus)
+@router.get("/import/{job_id}", response_model=ImportStatus, summary="Get import job status")
 async def import_status(
     job_id: str,
     current_user: User = Depends(require_role(UserRole.owner)),
