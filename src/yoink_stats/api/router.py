@@ -5,6 +5,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, BackgroundTasks, status
 from pydantic import BaseModel
 from sqlalchemy import cast, func, select, text, distinct, Integer
@@ -19,6 +20,12 @@ from yoink.core.db.models import Group, User, UserGroupPolicy, UserRole
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stats"])
+
+# Common annotated query params reused across stats endpoints
+ChatIdQuery = Annotated[int, Query(description="Telegram chat_id (negative for groups, e.g. -1001234567890)")]
+DaysQuery = Annotated[int | None, Query(ge=1, le=3650, description="Limit results to last N days. Omit for all-time.")]
+OffsetQuery = Annotated[int, Query(ge=0, description="Pagination offset")]
+LimitQuery = Annotated[int, Query(ge=1, le=200, description="Max records to return")]
 
 
 async def _is_chat_member(bot, chat_id: int, user_id: int) -> bool:
@@ -166,7 +173,7 @@ async def stats_groups(
 @router.get("/overview", summary="Chat statistics overview")
 async def stats_overview(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> dict:
@@ -203,9 +210,9 @@ async def stats_overview(
 @router.get("/top-users", summary="Top users by message count")
 async def stats_top_users(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     limit: int = Query(20, ge=1, le=100),
-    days: int | None = Query(None, ge=1, le=3650),
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -254,8 +261,8 @@ async def stats_top_users(
 @router.get("/activity-by-hour", summary="Message activity distribution by hour of day")
 async def stats_activity_by_hour(
     request: Request,
-    chat_id: int = Query(...),
-    days: int | None = Query(None, ge=1, le=3650),
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -280,8 +287,8 @@ async def stats_activity_by_hour(
 @router.get("/activity-by-day", summary="Message activity distribution by day of week")
 async def stats_activity_by_day(
     request: Request,
-    chat_id: int = Query(...),
-    days: int | None = Query(None, ge=1, le=3650),
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -312,8 +319,8 @@ async def stats_activity_by_day(
 @router.get("/activity-by-week", summary="Weekly message volume over time")
 async def stats_activity_by_week(
     request: Request,
-    chat_id: int = Query(...),
-    days: int | None = Query(None, ge=1, le=3650),
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -344,8 +351,8 @@ async def stats_activity_by_week(
 @router.get("/message-types", summary="Breakdown of message types (text/photo/video/etc)")
 async def stats_message_types(
     request: Request,
-    chat_id: int = Query(...),
-    days: int | None = Query(None, ge=1, le=3650),
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -366,8 +373,8 @@ async def stats_message_types(
 @router.get("/history", summary="Daily message count history")
 async def stats_history(
     request: Request,
-    chat_id: int = Query(...),
-    days: int | None = Query(None, ge=1, le=3650),
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -398,9 +405,9 @@ async def stats_history(
 @router.get("/words", summary="Top words / word frequency")
 async def stats_words(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     limit: int = Query(20, ge=1, le=100),
-    days: int | None = Query(None, ge=1, le=3650),
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -446,7 +453,7 @@ async def stats_words(
 @router.get("/user-stats", summary="Per-user statistics breakdown")
 async def stats_user(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     user_id: int = Query(...),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
@@ -514,7 +521,7 @@ async def stats_user(
 @router.get("/activity-by-month", summary="Monthly message volume")
 async def stats_activity_by_month(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     year: int | None = Query(None),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
@@ -551,7 +558,7 @@ async def stats_activity_by_month(
 @router.get("/ecdf", summary="Empirical CDF of messages per user")
 async def stats_ecdf(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     limit: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
@@ -611,7 +618,7 @@ async def stats_ecdf(
 @router.get("/title-history", summary="Chat title change history")
 async def stats_title_history(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -651,9 +658,9 @@ async def stats_title_history(
 @router.get("/mention-stats", summary="Mention frequency between users")
 async def stats_mention_stats(
     request: Request,
-    chat_id: int = Query(...),
+    chat_id: ChatIdQuery,
     limit: int = Query(20, ge=1, le=100),
-    days: int | None = Query(None, ge=1, le=3650),
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -681,8 +688,8 @@ async def stats_mention_stats(
 @router.get("/daily-activity", summary="Daily active users (DAU) time series")
 async def stats_daily_activity(
     request: Request,
-    chat_id: int = Query(...),
-    days: int | None = Query(None, ge=1, le=3650),
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -714,8 +721,8 @@ async def stats_daily_activity(
 @router.get("/member-events", summary="Group join/leave events over time")
 async def stats_member_events(
     request: Request,
-    chat_id: int = Query(...),
-    days: int | None = Query(None, ge=1, le=3650),
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
