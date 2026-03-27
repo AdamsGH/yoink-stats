@@ -211,7 +211,7 @@ async def stats_overview(
 async def stats_top_users(
     request: Request,
     chat_id: ChatIdQuery,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
     days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
@@ -406,7 +406,7 @@ async def stats_history(
 async def stats_words(
     request: Request,
     chat_id: ChatIdQuery,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
     days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
@@ -454,7 +454,7 @@ async def stats_words(
 async def stats_user(
     request: Request,
     chat_id: ChatIdQuery,
-    user_id: int = Query(...),
+    user_id: int = Query(..., description="Filter by user ID"),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> dict:
@@ -522,7 +522,7 @@ async def stats_user(
 async def stats_activity_by_month(
     request: Request,
     chat_id: ChatIdQuery,
-    year: int | None = Query(None),
+    year: int | None = Query(None, description="Filter by year (e.g. 2024). Omit for all years"),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -559,7 +559,7 @@ async def stats_activity_by_month(
 async def stats_ecdf(
     request: Request,
     chat_id: ChatIdQuery,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
@@ -659,7 +659,7 @@ async def stats_title_history(
 async def stats_mention_stats(
     request: Request,
     chat_id: ChatIdQuery,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
     days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
