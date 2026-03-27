@@ -75,6 +75,9 @@ def _message_to_kwargs(msg: Message) -> dict:
     elif msg.animation:
         file_id = msg.animation.file_id
 
+    # sender_tag: tag or custom title of the sender (Bot API 9.5, supergroups only)
+    sender_tag: str | None = getattr(msg, "sender_tag", None) or None
+
     return {
         "message_id": msg.message_id,
         "chat_id": msg.chat_id,
@@ -92,6 +95,7 @@ def _message_to_kwargs(msg: Message) -> dict:
         "new_chat_title": msg.new_chat_title,
         "file_id": file_id,
         "is_edited": False,
+        "sender_tag": sender_tag,
     }
 
 
