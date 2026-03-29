@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { useGetIdentity } from '@refinedev/core'
@@ -22,17 +22,15 @@ import {
   YAxis,
 } from 'recharts'
 
-import { ArrowLeft, ArrowDownAZ, ArrowUpAZ, Calendar, Clock, Download, ExternalLink, MessageSquare, RefreshCw, Search, Type, Users as UsersIcon } from 'lucide-react'
+import { ArrowLeft, Calendar, Clock, Download, MessageSquare, Type, Users as UsersIcon } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
+import { formatDateMonth } from '@core/lib/utils'
+import { userInitials, userPhotoUrl } from '@core/lib/user-utils'
+import type { DrawerUser } from '@stats/types'
 import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
-import { Badge } from '@core/components/ui/badge'
 import { Button } from '@core/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
-import { Drawer, DrawerContent } from '@core/components/ui/drawer'
-import { InlineSelect } from '@core/components/app/InlineSelect'
-import { Input } from '@core/components/ui/input'
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@core/components/ui/item'
 import { Skeleton } from '@core/components/ui/skeleton'
 import { toast } from '@core/components/ui/toast'
 import { chartColors, PeriodToggle, StatCard, StatCardSkeleton } from '@core/components/charts'
@@ -40,6 +38,7 @@ import type { Period } from '@core/components/charts'
 import type {
   DayActivity,
   HourActivity,
+  Member,
   MentionStat,
   MessageType,
   MonthActivity,
@@ -54,23 +53,11 @@ import type {
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
-}
 
 function userLabel(u: TopUser): string {
   return u.display_name ?? u.username ?? String(u.user_id)
 }
 
-function userInitials(u: TopUser): string {
-  const name = u.display_name ?? u.username ?? ''
-  return name.slice(0, 2).toUpperCase() || '#'
-}
-
-function userPhotoUrl(u: TopUser): string | undefined {
-  return `${apiClient.defaults.baseURL}/users/${u.user_id}/photo`
-}
 
 function formatMonthLabel(month: string): string {
   const [year, mon] = month.split('-')
@@ -130,10 +117,10 @@ interface PeriodData {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function RankedList({ items, labelKey, valueKey, limit = 10 }: {
-  items: any[]
-  labelKey: string
-  valueKey: string
+function RankedList<T extends object>({ items, labelKey, valueKey, limit = 10 }: {
+  items: T[]
+  labelKey: keyof T
+  valueKey: keyof T
   limit?: number
 }) {
   const top = items.slice(0, limit)
@@ -166,345 +153,9 @@ function RankedList({ items, labelKey, valueKey, limit = 10 }: {
   )
 }
 
-interface Member {
-  user_id: number
-  display_name: string | null
-  username: string | null
-  has_photo: boolean
-  message_count: number
-  reaction_count: number
-  first_seen_at: string | null
-  last_active_at: string | null
-  is_active: boolean
-  in_chat?: boolean
-}
 
-function memberLabel(m: Member) { return m.display_name ?? m.username ?? String(m.user_id) }
-function memberInitials(m: Member) { return (m.display_name ?? m.username ?? '#').slice(0, 2).toUpperCase() }
-function memberPhotoUrl(m: Member) {
-  return `${apiClient.defaults.baseURL}/users/${m.user_id}/photo`
-}
-function formatRelative(iso: string | null) {
-  if (!iso) return null
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
-  if (days === 0) return 'today'
-  if (days === 1) return 'yesterday'
-  if (days < 30) return `${days}d ago`
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`
-  return `${Math.floor(days / 365)}y ago`
-}
-
-interface UserStats {
-  user_id: number
-  username: string | null
-  display_name: string | null
-  total: number
-  reaction_count: number
-  first_date: string | null
-  last_date: string | null
-  avg_per_day: number
-  top_type: string | null
-}
-
-interface DrawerUser {
-  user_id: number
-  username: string | null
-  display_name: string | null
-  member?: Member
-}
-
-function openProfileLink(userId: number, username: string | null) {
-  const tg = window.Telegram?.WebApp
-  if (username) {
-    const url = `https://t.me/${username}`
-    tg ? tg.openTelegramLink(url) : window.open(url, '_blank')
-  } else {
-    tg ? tg.openTelegramLink(`tg://user?id=${userId}`) : window.open(`tg://user?id=${userId}`)
-  }
-}
-
-function UserStatsDrawer({ user, chatId, onClose }: { user: DrawerUser | null; chatId: number; onClose: () => void }) {
-  const [stats, setStats] = useState<UserStats | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!user) { setStats(null); return }
-    setLoading(true)
-    apiClient.get<UserStats>('/stats/user-stats', { params: { chat_id: chatId, user_id: user.user_id } })
-      .then((r) => setStats(r.data))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [user?.user_id, chatId])
-
-  const label = user?.display_name ?? user?.username ?? (user ? String(user.user_id) : '')
-  const initials = label.slice(0, 2).toUpperCase() || '#'
-  const photoUrl = user ? `${apiClient.defaults.baseURL}/users/${user.user_id}/photo` : undefined
-  const m = user?.member ?? null
-
-  const rows: [string, string][] = user ? [
-    ['User ID', String(user.user_id)],
-    ...(m ? [
-      ['Messages', m.message_count.toLocaleString()] as [string, string],
-      ['Reactions given', m.reaction_count > 0 ? m.reaction_count.toLocaleString() : '—'] as [string, string],
-    ] : [
-      ['Messages', stats?.total != null ? stats.total.toLocaleString() : '—'] as [string, string],
-    ]),
-    ['Avg / day', stats?.avg_per_day != null ? String(stats.avg_per_day) : '—'],
-    ['Top type', stats?.top_type ?? '—'],
-    ['First seen', stats?.first_date ? new Date(stats.first_date).toLocaleDateString() : '—'],
-    ['Last active', (m?.last_active_at ?? stats?.last_date)
-      ? new Date((m?.last_active_at ?? stats!.last_date)!).toLocaleDateString()
-      : '—'],
-  ] : []
-
-  return (
-    <Drawer open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DrawerContent className="max-h-[80vh] border-0">
-        {user && (
-          <>
-            <div className="bg-gradient-to-b from-muted/60 to-background -mt-7 pt-7 px-4 pb-4 border-b border-border/50 rounded-t-[10px]">
-              <div className="flex items-center gap-4">
-                <Avatar className="size-14 ring-2 ring-border shadow-md">
-                  <AvatarImage src={photoUrl} />
-                  <AvatarFallback className="text-lg font-bold">{initials}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="font-semibold text-base truncate">{label}</p>
-                    <button
-                      onClick={() => openProfileLink(user.user_id, user.username)}
-                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                      title={user.username ? `@${user.username}` : `ID: ${user.user_id}`}
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  {user.username && <p className="text-sm text-muted-foreground">@{user.username}</p>}
-                  {m && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
-                        {m.is_active ? 'active' : 'inactive'}
-                      </Badge>
-                      {m.in_chat === true && <Badge variant="outline" className="text-xs px-1.5 py-0">in chat</Badge>}
-                      {m.in_chat === false && <Badge variant="outline" className="text-xs px-1.5 py-0 text-muted-foreground">left</Badge>}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="overflow-y-auto px-4 py-3 space-y-1">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)
-              ) : (
-                rows.map(([lbl, val]) => (
-                  <div key={lbl} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                    <span className="text-sm text-muted-foreground">{lbl}</span>
-                    <span className="text-sm font-medium tabular-nums">{val}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        )}
-      </DrawerContent>
-    </Drawer>
-  )
-}
-
-function MembersTab({
-  chatId,
-  members,
-  loading,
-  onLoad,
-  sessionAvailable,
-  period,
-}: {
-  chatId: number
-  members: Member[] | null
-  loading: boolean
-  onLoad: (members: Member[]) => void
-  sessionAvailable: boolean
-  period: Period
-}) {
-  const [syncing, setSyncing] = useState(false)
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [chatFilter, setChatFilter] = useState<'any' | 'in_chat' | 'left'>('any')
-  const [sortBy, setSortBy] = useState<'last_active' | 'messages' | 'reactions' | 'name' | 'joined'>('last_active')
-  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
-  const [selected, setSelected] = useState<DrawerUser | null>(null)
-
-  function handleSync() {
-    setSyncing(true)
-    apiClient.post<Member[]>('/stats/members/sync', null, { params: { chat_id: chatId } })
-      .then((r) => onLoad(r.data))
-      .catch(() => toast.error('Sync failed'))
-      .finally(() => setSyncing(false))
-  }
-
-  const hasChatInfo = (members ?? []).some((m) => m.in_chat === true || m.in_chat === false)
-
-  const filtered = useMemo(() => {
-    const list = (members ?? []).filter((m) => {
-      if (filter === 'active' && !m.is_active) return false
-      if (filter === 'inactive' && m.is_active) return false
-      if (chatFilter === 'in_chat' && m.in_chat !== true) return false
-      if (chatFilter === 'left' && m.in_chat !== false) return false
-      if (!search) return true
-      const q = search.toLowerCase()
-      return (
-        (m.display_name ?? '').toLowerCase().includes(q) ||
-        (m.username ?? '').toLowerCase().includes(q) ||
-        String(m.user_id).includes(q)
-      )
-    })
-
-    const dir = sortDir === 'desc' ? -1 : 1
-    list.sort((a, b) => {
-      switch (sortBy) {
-        case 'messages':   return dir * (a.message_count - b.message_count)
-        case 'reactions':  return dir * (a.reaction_count - b.reaction_count)
-        case 'name':       return dir * (memberLabel(a).localeCompare(memberLabel(b)))
-        case 'joined':     return dir * ((a.first_seen_at ?? '').localeCompare(b.first_seen_at ?? ''))
-        case 'last_active':
-        default:           return dir * ((a.last_active_at ?? '').localeCompare(b.last_active_at ?? ''))
-      }
-    })
-    return list
-  }, [members, filter, chatFilter, search, sortBy, sortDir, period])
-
-  return (
-    <>
-      <Card>
-        <CardHeader className="px-4 py-3 gap-2">
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search members..."
-                className="h-8 pl-8 text-sm"
-              />
-            </div>
-            {sessionAvailable && (
-              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs shrink-0" onClick={handleSync} disabled={syncing}>
-                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing...' : 'Sync all'}
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex rounded-md border text-xs">
-                {(['all', 'active', 'inactive'] as const).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFilter(f)}
-                    className={`h-7 px-2.5 capitalize transition-colors first:rounded-l-md last:rounded-r-md ${filter === f ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-              {hasChatInfo && (
-                <div className="flex rounded-md border text-xs">
-                  {(['any', 'in_chat', 'left'] as const).map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setChatFilter(f)}
-                      className={`h-7 px-2.5 transition-colors first:rounded-l-md last:rounded-r-md ${chatFilter === f ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
-                    >
-                      {f === 'any' ? 'Any' : f === 'in_chat' ? 'In chat' : 'Left'}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <InlineSelect
-                options={[
-                  { value: 'last_active', label: 'Last active' },
-                  { value: 'messages',    label: 'Messages' },
-                  { value: 'reactions',   label: 'Reactions' },
-                  { value: 'name',        label: 'Name' },
-                  { value: 'joined',      label: 'First seen' },
-                ]}
-                value={sortBy}
-                onValueChange={(v) => setSortBy(v as typeof sortBy)}
-                className="h-7 text-xs w-32"
-              />
-              <button
-                onClick={() => setSortDir((d) => d === 'desc' ? 'asc' : 'desc')}
-                className="h-7 w-7 flex items-center justify-center rounded-md border hover:bg-muted/50 transition-colors"
-                title={sortDir === 'desc' ? 'Descending' : 'Ascending'}
-              >
-                {sortDir === 'desc'
-                  ? <ArrowDownAZ className="h-3.5 w-3.5" />
-                  : <ArrowUpAZ className="h-3.5 w-3.5" />}
-              </button>
-              {members && (
-                <p className="text-xs text-muted-foreground pl-1">
-                  {filtered.length}/{
-                    chatFilter === 'in_chat' ? members.filter(m => m.in_chat === true).length
-                    : chatFilter === 'left'  ? members.filter(m => m.in_chat === false).length
-                    : members.length
-                  }
-                  {!sessionAvailable && <span className="ml-1 opacity-60">·&nbsp;senders</span>}
-                </p>
-              )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="px-2 py-0 pb-2">
-          {loading ? (
-            Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 px-2 py-2">
-                <Skeleton className="h-9 w-9 rounded-full shrink-0" />
-                <div className="flex-1 space-y-1.5">
-                  <Skeleton className="h-3.5 w-32" />
-                  <Skeleton className="h-3 w-48" />
-                </div>
-              </div>
-            ))
-          ) : filtered.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No members found</p>
-          ) : (
-            filtered.map((m) => (
-              <Item key={m.user_id} className="px-2 cursor-pointer" onClick={() => setSelected({ user_id: m.user_id, username: m.username, display_name: m.display_name, member: m })}>
-                <ItemMedia>
-                  <Avatar className="h-9 w-9">
-                    <AvatarImage src={memberPhotoUrl(m)} />
-                    <AvatarFallback className="text-xs">{memberInitials(m)}</AvatarFallback>
-                  </Avatar>
-                </ItemMedia>
-                <ItemContent>
-                  <ItemTitle className="text-sm">{memberLabel(m)}</ItemTitle>
-                  <ItemDescription className="text-xs">
-                    {m.message_count.toLocaleString()} msgs
-                    {m.reaction_count > 0 && ` · ${m.reaction_count.toLocaleString()} ❤`}
-                    {m.last_active_at && ` · ${formatRelative(m.last_active_at)}`}
-                  </ItemDescription>
-                </ItemContent>
-                <ItemActions className="flex-col items-end gap-1">
-                  <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0.5">
-                    {m.is_active ? 'active' : 'inactive'}
-                  </Badge>
-                  {m.in_chat === false && (
-                    <Badge variant="outline" className="text-xs px-1.5 py-0.5 text-muted-foreground">
-                      left
-                    </Badge>
-                  )}
-                </ItemActions>
-              </Item>
-            ))
-          )}
-        </CardContent>
-      </Card>
-      <UserStatsDrawer user={selected} chatId={chatId} onClose={() => setSelected(null)} />
-    </>
-  )
-}
+import { UserStatsDrawer } from './components/UserStatsDrawer'
+import { MembersTab } from './components/MembersTab'
 
 export default function StatsGroupPage() {
   const { t } = useTranslation()
@@ -748,7 +399,7 @@ export default function StatsGroupPage() {
               <div className="grid grid-cols-3 gap-2">
                 <StatCard label={t('stats.total_messages')} value={data.overview.total_messages} icon={<MessageSquare className="h-3.5 w-3.5" />} />
                 <StatCard label={t('stats.unique_users')} value={data.overview.unique_users} icon={<UsersIcon className="h-3.5 w-3.5" />} />
-                <StatCard label="Since" value={formatDate(data.overview.first_date)} icon={<Calendar className="h-3.5 w-3.5" />} />
+                <StatCard label="Since" value={formatDateMonth(data.overview.first_date)} icon={<Calendar className="h-3.5 w-3.5" />} />
               </div>
               <div className={`grid gap-2 ${isAdmin && data.overview.total_reactions > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 <StatCard label="Avg / day" value={avgPerDay} compact />
@@ -844,12 +495,12 @@ export default function StatsGroupPage() {
                           onClick={() => setSelectedUser({ user_id: u.user_id, username: u.username, display_name: u.display_name })}
                         >
                           <Avatar className="size-7 shrink-0">
-                            <AvatarImage src={userPhotoUrl(u)} />
+                            <AvatarImage src={userPhotoUrl(u.user_id)} />
                             <AvatarFallback
                               className="text-[10px] font-bold"
                               style={{ backgroundColor: `${chartColors()[i % chartColors().length]}20`, color: chartColors()[i % chartColors().length] }}
                             >
-                              {userInitials(u)}
+                              {userInitials({ first_name: u.display_name, username: u.username })}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">

@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/ca
 import { Skeleton } from '@core/components/ui/skeleton'
 import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
-import { chartColors } from '@core/components/charts'
+import { chartColors, StatCard, StatCardSkeleton } from '@core/components/charts'
 
 // types
 
@@ -44,27 +44,6 @@ interface DlOverview {
 
 // reusable components
 
-function BigStat({ label, value, icon }: { label: string; value: string | number; icon?: React.ReactNode }) {
-  return (
-    <div className="rounded-lg bg-muted px-3 py-3 text-center flex flex-col items-center gap-1">
-      {icon && <span className="text-muted-foreground">{icon}</span>}
-      <p className="text-2xl font-bold tabular-nums leading-none">
-        {typeof value === 'number' ? value.toLocaleString() : value}
-      </p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  )
-}
-
-function BigStatSkeleton() {
-  return (
-    <div className="rounded-lg bg-muted px-3 py-3 space-y-2 flex flex-col items-center">
-      <Skeleton className="h-7 w-12" />
-      <Skeleton className="h-3 w-16" />
-    </div>
-  )
-}
-
 function ChartSkeleton({ height = 120 }: { height?: number }) {
   return <Skeleton className="w-full rounded-md" style={{ height }} />
 }
@@ -73,7 +52,7 @@ function SectionSkeleton({ stats = 3, chart = true }: { stats?: number; chart?: 
   return (
     <div className="space-y-4">
       <div className={`grid grid-cols-${stats} gap-2`}>
-        {Array.from({ length: stats }).map((_, i) => <BigStatSkeleton key={i} />)}
+        {Array.from({ length: stats }).map((_, i) => <StatCardSkeleton key={i} />)}
       </div>
       {chart && <ChartSkeleton />}
     </div>
@@ -215,16 +194,17 @@ export default function StatsMePage() {
           {loading ? <SectionSkeleton /> : dlStats ? (
             <>
               <div className="grid grid-cols-3 gap-2">
-                <BigStat label={t('mystats.total', { defaultValue: 'Total' })} value={dlStats.total} />
-                <BigStat label={t('mystats.this_week', { defaultValue: 'This week' })} value={dlStats.this_week} />
-                <BigStat label={t('mystats.today', { defaultValue: 'Today' })} value={dlStats.today} />
+                <StatCard centered label={t('mystats.total', { defaultValue: 'Total' })} value={dlStats.total} />
+                <StatCard centered label={t('mystats.this_week', { defaultValue: 'This week' })} value={dlStats.this_week} />
+                <StatCard centered label={t('mystats.today', { defaultValue: 'Today' })} value={dlStats.today} />
               </div>
 
               {dlStats.by_category && Object.keys(dlStats.by_category).length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
                   {Object.entries(dlStats.by_category).map(([cat, count]) => (
-                    <BigStat
+                    <StatCard
                       key={cat}
+                      centered
                       icon={CATEGORY_ICONS[cat] ?? <Package className="h-4 w-4" />}
                       label={t(`mystats.cat_${cat}`, { defaultValue: cat })}
                       value={count}
@@ -272,9 +252,9 @@ export default function StatsMePage() {
           {loading ? <SectionSkeleton /> : musicStats && musicStats.total > 0 ? (
             <>
               <div className="grid grid-cols-3 gap-2">
-                <BigStat icon={<Hash className="h-4 w-4" />} label={t('mystats.total', { defaultValue: 'Total' })} value={musicStats.total} />
-                <BigStat icon={<CalendarDays className="h-4 w-4" />} label={t('mystats.this_week', { defaultValue: 'This week' })} value={musicStats.this_week} />
-                <BigStat icon={<Clock className="h-4 w-4" />} label={t('mystats.today', { defaultValue: 'Today' })} value={musicStats.today} />
+                <StatCard centered icon={<Hash className="h-4 w-4" />} label={t('mystats.total', { defaultValue: 'Total' })} value={musicStats.total} />
+                <StatCard centered icon={<CalendarDays className="h-4 w-4" />} label={t('mystats.this_week', { defaultValue: 'This week' })} value={musicStats.this_week} />
+                <StatCard centered icon={<Clock className="h-4 w-4" />} label={t('mystats.today', { defaultValue: 'Today' })} value={musicStats.today} />
               </div>
 
               {musicByDay.length > 1 && (
@@ -335,9 +315,9 @@ export default function StatsMePage() {
           {loading ? <SectionSkeleton /> : insightStats && insightStats.total_summaries > 0 ? (
             <>
               <div className="grid grid-cols-3 gap-2">
-                <BigStat icon={<Hash className="h-4 w-4" />} label={t('mystats.total', { defaultValue: 'Total' })} value={insightStats.total_summaries} />
-                <BigStat icon={<CalendarDays className="h-4 w-4" />} label={t('mystats.this_week', { defaultValue: 'This week' })} value={insightStats.this_week} />
-                <BigStat icon={<Clock className="h-4 w-4" />} label={t('mystats.today', { defaultValue: 'Today' })} value={insightStats.today} />
+                <StatCard centered icon={<Hash className="h-4 w-4" />} label={t('mystats.total', { defaultValue: 'Total' })} value={insightStats.total_summaries} />
+                <StatCard centered icon={<CalendarDays className="h-4 w-4" />} label={t('mystats.this_week', { defaultValue: 'This week' })} value={insightStats.this_week} />
+                <StatCard centered icon={<Clock className="h-4 w-4" />} label={t('mystats.today', { defaultValue: 'Today' })} value={insightStats.today} />
               </div>
 
               {insightStats.by_command && Object.keys(insightStats.by_command).length > 0 && (

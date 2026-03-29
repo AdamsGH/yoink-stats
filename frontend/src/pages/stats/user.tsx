@@ -3,30 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { apiClient } from '@core/lib/api-client'
+import { formatDateDay } from '@core/lib/utils'
+import type { UserStats } from '@stats/types'
 import { Button } from '@core/components/ui/button'
 import { Card, CardContent } from '@core/components/ui/card'
 import { Skeleton } from '@core/components/ui/skeleton'
 import { toast } from '@core/components/ui/toast'
 
-interface UserStats {
-  user_id: number
-  username: string | null
-  display_name: string | null
-  total: number
-  first_date: string | null
-  last_date: string | null
-  avg_per_day: number
-  top_type: string | null
-}
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
 
 function StatRow({ label, value }: { label: string; value: string | number | null }) {
   return (
@@ -88,8 +72,8 @@ export default function StatsUserPage() {
               <StatRow label={t('stats.total_messages')} value={data.total} />
               <StatRow label={t('stats.avg_per_day')} value={data.avg_per_day} />
               <StatRow label={t('stats.top_type')} value={data.top_type} />
-              <StatRow label={t('stats.first_message_user')} value={formatDate(data.first_date)} />
-              <StatRow label={t('stats.last_message_user')} value={formatDate(data.last_date)} />
+              <StatRow label={t('stats.first_message_user')} value={formatDateDay(data.first_date)} />
+              <StatRow label={t('stats.last_message_user')} value={formatDateDay(data.last_date)} />
               {data.username && (
                 <StatRow label={t('stats.username_label')} value={`@${data.username}`} />
               )}

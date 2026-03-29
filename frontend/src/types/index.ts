@@ -61,3 +61,35 @@ export interface MediaTrend {
   total: number
   media_pct: number
 }
+
+export interface UserStats {
+  user_id: number
+  username: string | null
+  display_name: string | null
+  total: number
+  reaction_count?: number
+  first_date: string | null
+  last_date: string | null
+  avg_per_day: number
+  top_type: string | null
+}
+
+export interface Member {
+  user_id: number
+  display_name: string | null
+  username: string | null
+  has_photo: boolean
+  message_count: number
+  reaction_count: number
+  first_seen_at: string | null
+  last_active_at: string | null
+  is_active: boolean
+  in_chat?: boolean
+}
+
+export interface DrawerUser {
+  user_id: number
+  username: string | null
+  display_name: string | null
+  member?: Member
+}
