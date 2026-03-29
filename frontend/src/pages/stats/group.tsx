@@ -206,59 +206,89 @@ interface UserStats {
   top_type: string | null
 }
 
-function MemberDrawer({ member, chatId, onClose }: { member: Member | null; chatId: number; onClose: () => void }) {
+interface DrawerUser {
+  user_id: number
+  username: string | null
+  display_name: string | null
+  member?: Member
+}
+
+function openProfileLink(userId: number, username: string | null) {
+  const tg = window.Telegram?.WebApp
+  if (username) {
+    const url = `https://t.me/${username}`
+    tg ? tg.openTelegramLink(url) : window.open(url, '_blank')
+  } else {
+    tg ? tg.openTelegramLink(`tg://user?id=${userId}`) : window.open(`tg://user?id=${userId}`)
+  }
+}
+
+function UserStatsDrawer({ user, chatId, onClose }: { user: DrawerUser | null; chatId: number; onClose: () => void }) {
   const [stats, setStats] = useState<UserStats | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!member) { setStats(null); return }
+    if (!user) { setStats(null); return }
     setLoading(true)
-    apiClient.get<UserStats>('/stats/user-stats', { params: { chat_id: chatId, user_id: member.user_id } })
+    apiClient.get<UserStats>('/stats/user-stats', { params: { chat_id: chatId, user_id: user.user_id } })
       .then((r) => setStats(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [member?.user_id, chatId])
+  }, [user?.user_id, chatId])
 
-  const m = member
+  const label = user?.display_name ?? user?.username ?? (user ? String(user.user_id) : '')
+  const initials = label.slice(0, 2).toUpperCase() || '#'
+  const photoUrl = user ? `${apiClient.defaults.baseURL}/users/${user.user_id}/photo` : undefined
+  const m = user?.member ?? null
+
+  const rows: [string, string][] = user ? [
+    ['User ID', String(user.user_id)],
+    ...(m ? [
+      ['Messages', m.message_count.toLocaleString()] as [string, string],
+      ['Reactions given', m.reaction_count > 0 ? m.reaction_count.toLocaleString() : '—'] as [string, string],
+    ] : [
+      ['Messages', stats?.total != null ? stats.total.toLocaleString() : '—'] as [string, string],
+    ]),
+    ['Avg / day', stats?.avg_per_day != null ? String(stats.avg_per_day) : '—'],
+    ['Top type', stats?.top_type ?? '—'],
+    ['First seen', stats?.first_date ? new Date(stats.first_date).toLocaleDateString() : '—'],
+    ['Last active', (m?.last_active_at ?? stats?.last_date)
+      ? new Date((m?.last_active_at ?? stats!.last_date)!).toLocaleDateString()
+      : '—'],
+  ] : []
 
   return (
-    <Drawer open={!!m} onOpenChange={(o) => !o && onClose()}>
+    <Drawer open={!!user} onOpenChange={(o) => !o && onClose()}>
       <DrawerContent className="max-h-[80vh] border-0">
-        {m && (
+        {user && (
           <>
             <div className="bg-gradient-to-b from-muted/60 to-background -mt-7 pt-7 px-4 pb-4 border-b border-border/50 rounded-t-[10px]">
               <div className="flex items-center gap-4">
                 <Avatar className="size-14 ring-2 ring-border shadow-md">
-                  <AvatarImage src={memberPhotoUrl(m)} />
-                  <AvatarFallback className="text-lg font-bold">{memberInitials(m)}</AvatarFallback>
+                  <AvatarImage src={photoUrl} />
+                  <AvatarFallback className="text-lg font-bold">{initials}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <p className="font-semibold text-base truncate">{memberLabel(m)}</p>
+                    <p className="font-semibold text-base truncate">{label}</p>
                     <button
-                      onClick={() => {
-                        const tg = window.Telegram?.WebApp
-                        if (m.username) {
-                          const url = `https://t.me/${m.username}`
-                          tg ? tg.openTelegramLink(url) : window.open(url, '_blank')
-                        } else {
-                          tg ? tg.openTelegramLink(`tg://user?id=${m.user_id}`) : window.open(`tg://user?id=${m.user_id}`)
-                        }
-                      }}
+                      onClick={() => openProfileLink(user.user_id, user.username)}
                       className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                      title={m.username ? `@${m.username}` : `ID: ${m.user_id}`}
+                      title={user.username ? `@${user.username}` : `ID: ${user.user_id}`}
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  {m.username && <p className="text-sm text-muted-foreground">@{m.username}</p>}
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
-                      {m.is_active ? 'active' : 'inactive'}
-                    </Badge>
-                    {m.in_chat === true && <Badge variant="outline" className="text-xs px-1.5 py-0">in chat</Badge>}
-                    {m.in_chat === false && <Badge variant="outline" className="text-xs px-1.5 py-0 text-muted-foreground">left</Badge>}
-                  </div>
+                  {user.username && <p className="text-sm text-muted-foreground">@{user.username}</p>}
+                  {m && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
+                        {m.is_active ? 'active' : 'inactive'}
+                      </Badge>
+                      {m.in_chat === true && <Badge variant="outline" className="text-xs px-1.5 py-0">in chat</Badge>}
+                      {m.in_chat === false && <Badge variant="outline" className="text-xs px-1.5 py-0 text-muted-foreground">left</Badge>}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -266,22 +296,12 @@ function MemberDrawer({ member, chatId, onClose }: { member: Member | null; chat
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)
               ) : (
-                <>
-                  {[
-                    ['User ID', String(m.user_id)],
-                    ['Messages', m.message_count.toLocaleString()],
-                    ['Reactions given', m.reaction_count > 0 ? m.reaction_count.toLocaleString() : '—'],
-                    ['Avg / day', stats?.avg_per_day ?? '—'],
-                    ['Top type', stats?.top_type ?? '—'],
-                    ['First seen', stats?.first_date ? new Date(stats.first_date).toLocaleDateString() : '—'],
-                    ['Last active', m.last_active_at ? new Date(m.last_active_at).toLocaleDateString() : '—'],
-                  ].map(([label, value]) => (
-                    <div key={String(label)} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                      <span className="text-sm text-muted-foreground">{label}</span>
-                      <span className="text-sm font-medium tabular-nums">{String(value)}</span>
-                    </div>
-                  ))}
-                </>
+                rows.map(([lbl, val]) => (
+                  <div key={lbl} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                    <span className="text-sm text-muted-foreground">{lbl}</span>
+                    <span className="text-sm font-medium tabular-nums">{val}</span>
+                  </div>
+                ))
               )}
             </div>
           </>
@@ -312,7 +332,7 @@ function MembersTab({
   const [chatFilter, setChatFilter] = useState<'any' | 'in_chat' | 'left'>('any')
   const [sortBy, setSortBy] = useState<'last_active' | 'messages' | 'reactions' | 'name' | 'joined'>('last_active')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
-  const [selected, setSelected] = useState<Member | null>(null)
+  const [selected, setSelected] = useState<DrawerUser | null>(null)
 
   function handleSync() {
     setSyncing(true)
@@ -451,7 +471,7 @@ function MembersTab({
             <p className="py-8 text-center text-sm text-muted-foreground">No members found</p>
           ) : (
             filtered.map((m) => (
-              <Item key={m.user_id} className="px-2 cursor-pointer" onClick={() => setSelected(m)}>
+              <Item key={m.user_id} className="px-2 cursor-pointer" onClick={() => setSelected({ user_id: m.user_id, username: m.username, display_name: m.display_name, member: m })}>
                 <ItemMedia>
                   <Avatar className="h-9 w-9">
                     <AvatarImage src={memberPhotoUrl(m)} />
@@ -481,7 +501,7 @@ function MembersTab({
           )}
         </CardContent>
       </Card>
-      <MemberDrawer member={selected} chatId={chatId} onClose={() => setSelected(null)} />
+      <UserStatsDrawer user={selected} chatId={chatId} onClose={() => setSelected(null)} />
     </>
   )
 }
@@ -507,6 +527,7 @@ export default function StatsGroupPage() {
   const [membersLoading, setMembersLoading] = useState(false)
   const [sessionAvailable, setSessionAvailable] = useState(false)
   const [chatAdmins, setChatAdmins] = useState<{ user_id: number; status: string }[]>([])
+  const [selectedUser, setSelectedUser] = useState<DrawerUser | null>(null)
   const sessionChecked = useRef(false)
   const [period, setPeriodState] = useState<Period>([7, 30, 90, 0].includes(savedPeriod) ? savedPeriod : 30)
   const setPeriod = (v: Period) => {
@@ -820,7 +841,7 @@ export default function StatsGroupPage() {
                         <div
                           key={u.user_id}
                           className="flex items-center gap-2.5 py-1.5 cursor-pointer rounded-md px-1 -mx-1 hover:bg-muted/50 transition-colors"
-                          onClick={() => navigate(`/stats/${numericChatId}/user/${u.user_id}?group=${encodeURIComponent(groupTitle)}`)}
+                          onClick={() => setSelectedUser({ user_id: u.user_id, username: u.username, display_name: u.display_name })}
                         >
                           <Avatar className="size-7 shrink-0">
                             <AvatarImage src={userPhotoUrl(u)} />
@@ -1117,6 +1138,8 @@ export default function StatsGroupPage() {
           <ImportPage defaultChatId={String(numericChatId)} />
         </TabsContent>
       </Tabs>
+
+      <UserStatsDrawer user={selectedUser} chatId={numericChatId} onClose={() => setSelectedUser(null)} />
     </div>
   )
 }
