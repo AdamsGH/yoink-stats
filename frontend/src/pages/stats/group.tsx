@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
+import { useGetIdentity } from '@refinedev/core'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@core/components/ui/tabs'
 import ImportPage from '@stats/pages/import/index'
 import {
@@ -21,12 +22,15 @@ import {
   YAxis,
 } from 'recharts'
 
-import { ArrowLeft, Calendar, Clock, Download, MessageSquare, Type, Users as UsersIcon } from 'lucide-react'
+import { ArrowLeft, Calendar, Clock, Download, MessageSquare, RefreshCw, Search, Type, Users as UsersIcon } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
 import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
+import { Badge } from '@core/components/ui/badge'
 import { Button } from '@core/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
+import { Input } from '@core/components/ui/input'
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@core/components/ui/item'
 import { Skeleton } from '@core/components/ui/skeleton'
 import { toast } from '@core/components/ui/toast'
 import { chartColors, PeriodToggle, StatCard, StatCardSkeleton } from '@core/components/charts'
@@ -141,11 +145,197 @@ function RankedList({ items, labelKey, valueKey, limit = 10 }: {
   )
 }
 
+interface Member {
+  user_id: number
+  display_name: string | null
+  username: string | null
+  has_photo: boolean
+  message_count: number
+  reaction_count: number
+  first_seen_at: string | null
+  last_active_at: string | null
+  is_active: boolean
+  in_chat?: boolean
+}
+
+function MembersTab({ chatId }: { chatId: number }) {
+  const navigate = useNavigate()
+  const [members, setMembers] = useState<Member[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [sessionAvailable, setSessionAvailable] = useState(false)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const loaded = useRef(false)
+  const sessionChecked = useRef(false)
+
+  useEffect(() => {
+    if (loaded.current) return
+    loaded.current = true
+    setLoading(true)
+    apiClient.get<Member[]>('/stats/members', { params: { chat_id: chatId } })
+      .then((r) => setMembers(r.data))
+      .catch(() => setMembers([]))
+      .finally(() => setLoading(false))
+  }, [chatId])
+
+  useEffect(() => {
+    if (sessionChecked.current) return
+    sessionChecked.current = true
+    apiClient.get<{ available: boolean }>('/threads/status')
+      .then((r) => setSessionAvailable(r.data.available))
+      .catch(() => setSessionAvailable(false))
+  }, [])
+
+  function handleSync() {
+    setSyncing(true)
+    apiClient.post<Member[]>('/stats/members/sync', null, { params: { chat_id: chatId } })
+      .then((r) => setMembers(r.data))
+      .catch(() => toast.error('Sync failed'))
+      .finally(() => setSyncing(false))
+  }
+
+  const filtered = (members ?? []).filter((m) => {
+    if (filter === 'active' && !m.is_active) return false
+    if (filter === 'inactive' && m.is_active) return false
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (
+      (m.display_name ?? '').toLowerCase().includes(q) ||
+      (m.username ?? '').toLowerCase().includes(q) ||
+      String(m.user_id).includes(q)
+    )
+  })
+
+  function memberLabel(m: Member) {
+    return m.display_name ?? m.username ?? String(m.user_id)
+  }
+
+  function memberInitials(m: Member) {
+    return (m.display_name ?? m.username ?? '#').slice(0, 2).toUpperCase()
+  }
+
+  function memberPhotoUrl(m: Member) {
+    if (!m.has_photo) return undefined
+    return `${apiClient.defaults.baseURL}/users/${m.user_id}/photo`
+  }
+
+  function formatRelative(iso: string | null) {
+    if (!iso) return null
+    const d = new Date(iso)
+    const diff = Date.now() - d.getTime()
+    const days = Math.floor(diff / 86400000)
+    if (days === 0) return 'today'
+    if (days === 1) return 'yesterday'
+    if (days < 30) return `${days}d ago`
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`
+    return `${Math.floor(days / 365)}y ago`
+  }
+
+  return (
+    <Card>
+      <CardHeader className="px-4 py-3 gap-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search members..."
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
+          <div className="flex rounded-md border text-xs">
+            {(['all', 'active', 'inactive'] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`h-8 px-2.5 capitalize transition-colors first:rounded-l-md last:rounded-r-md ${filter === f ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          {sessionAvailable && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2.5 text-xs shrink-0"
+              onClick={handleSync}
+              disabled={syncing}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync all'}
+            </Button>
+          )}
+        </div>
+        {members && (
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} of {members.length} {members.some(m => m.in_chat !== undefined) ? 'total' : 'active senders'}
+            {!sessionAvailable && <span className="ml-1 opacity-60">· only message senders shown</span>}
+          </p>
+        )}
+      </CardHeader>
+      <CardContent className="px-2 py-0 pb-2">
+        {loading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-2 py-2">
+              <Skeleton className="h-9 w-9 rounded-full" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+            </div>
+          ))
+        ) : filtered.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">No members found</p>
+        ) : (
+          filtered.map((m) => (
+            <Item
+              key={m.user_id}
+              className="px-2 cursor-pointer"
+              onClick={() => navigate(`/stats/${chatId}/user/${m.user_id}`)}
+            >
+              <ItemMedia>
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={memberPhotoUrl(m)} />
+                  <AvatarFallback className="text-xs">{memberInitials(m)}</AvatarFallback>
+                </Avatar>
+              </ItemMedia>
+              <ItemContent>
+                <ItemTitle className="text-sm">{memberLabel(m)}</ItemTitle>
+                <ItemDescription className="text-xs">
+                  {m.message_count.toLocaleString()} msgs
+                  {m.reaction_count > 0 && ` · ${m.reaction_count.toLocaleString()} reactions`}
+                  {m.last_active_at && ` · ${formatRelative(m.last_active_at)}`}
+                </ItemDescription>
+              </ItemContent>
+              <ItemActions className="flex-col items-end gap-1">
+                <Badge
+                  variant={m.is_active ? 'default' : 'secondary'}
+                  className="text-xs px-1.5 py-0"
+                >
+                  {m.is_active ? 'active' : 'inactive'}
+                </Badge>
+                {m.in_chat === false && (
+                  <span className="text-[10px] text-muted-foreground">left</span>
+                )}
+              </ItemActions>
+            </Item>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function StatsGroupPage() {
   const { t } = useTranslation()
   const { chatId } = useParams<{ chatId: string }>()
   const navigate = useNavigate()
   const numericChatId = Number(chatId)
+  const { data: identity } = useGetIdentity<{ id: string; name: string; role: string }>()
+  const isAdmin = identity?.role === 'admin' || identity?.role === 'owner'
 
   const PERIOD_KEY = 'stats_period'
   const savedPeriod = Number(localStorage.getItem(PERIOD_KEY) || 30) as Period
@@ -319,7 +509,8 @@ export default function StatsGroupPage() {
         <div className="flex items-center justify-between gap-2">
           <TabsList>
             <TabsTrigger value="stats">{t('stats.tab_stats')}</TabsTrigger>
-            <TabsTrigger value="import">{t('stats.tab_import')}</TabsTrigger>
+            {isAdmin && <TabsTrigger value="members">{t('stats.tab_members', { defaultValue: 'Members' })}</TabsTrigger>}
+            {identity?.role === 'owner' && <TabsTrigger value="import">{t('stats.tab_import')}</TabsTrigger>}
           </TabsList>
           <PeriodToggle value={period} onChange={setPeriod} />
         </div>
@@ -677,6 +868,11 @@ export default function StatsGroupPage() {
           )}
         </TabsContent>
 
+        {isAdmin && (
+          <TabsContent value="members" className="mt-4">
+            <MembersTab chatId={numericChatId} />
+          </TabsContent>
+        )}
         <TabsContent value="import" className="mt-4">
           <ImportPage defaultChatId={String(numericChatId)} />
         </TabsContent>

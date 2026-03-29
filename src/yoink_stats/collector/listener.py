@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
-from telegram import Message, Update
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram import Message, Update, ReactionTypeEmoji, ReactionTypeCustomEmoji
+from telegram.ext import Application, ContextTypes, MessageHandler, MessageReactionHandler, filters
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,72 @@ async def log_edited(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.warning("Failed to update edited message %d in %d: %s", msg.message_id, chat.id, exc)
 
 
+def _reaction_key(reaction) -> tuple[str, str] | None:
+    """Return (reaction_key, reaction_type) for a reaction object, or None to skip."""
+    if isinstance(reaction, ReactionTypeEmoji):
+        return reaction.emoji, "emoji"
+    if isinstance(reaction, ReactionTypeCustomEmoji):
+        return reaction.custom_emoji_id, "custom_emoji"
+    # ReactionTypePaid or unknown — track as "paid"
+    rtype = getattr(reaction, "type", None)
+    if rtype == "paid":
+        return "paid", "paid"
+    return None
+
+
+async def log_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    reaction_update = update.message_reaction
+    if not reaction_update:
+        return
+
+    user = reaction_update.user
+    if user is None:
+        return
+
+    chat = reaction_update.chat
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    if not await _check_group_enabled(chat, context):
+        return
+
+    reaction_repo = context.bot_data.get("stats_reaction_repo")
+    if reaction_repo is None:
+        return
+
+    old_keys = {_reaction_key(r) for r in (reaction_update.old_reaction or [])} - {None}
+    new_keys = {_reaction_key(r) for r in (reaction_update.new_reaction or [])} - {None}
+
+    to_add = new_keys - old_keys
+    to_remove = old_keys - new_keys
+
+    now = datetime.now(timezone.utc)
+
+    for key, rtype in to_add:
+        try:
+            await reaction_repo.upsert(
+                user_id=user.id,
+                chat_id=chat.id,
+                message_id=reaction_update.message_id,
+                reaction_key=key,
+                reaction_type=rtype,
+                date=now,
+            )
+        except Exception as exc:
+            logger.debug("Failed to upsert reaction %s for user %d: %s", key, user.id, exc)
+
+    for key, rtype in to_remove:
+        try:
+            await reaction_repo.delete(
+                user_id=user.id,
+                chat_id=chat.id,
+                message_id=reaction_update.message_id,
+                reaction_key=key,
+            )
+        except Exception as exc:
+            logger.debug("Failed to delete reaction %s for user %d: %s", key, user.id, exc)
+
+
 def register(app: Application) -> None:
     app.add_handler(
         MessageHandler(filters.ChatType.GROUPS & ~filters.COMMAND, log_message),
@@ -225,5 +292,9 @@ def register(app: Application) -> None:
     )
     app.add_handler(
         MessageHandler(filters.UpdateType.EDITED_MESSAGE & filters.ChatType.GROUPS, log_edited),
+        group=100,
+    )
+    app.add_handler(
+        MessageReactionHandler(log_reaction),
         group=100,
     )

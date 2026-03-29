@@ -958,6 +958,198 @@ class ImportStatus(BaseModel):
 _import_jobs: dict[str, ImportStatus] = {}
 
 
+@router.get("/members", summary="Chat member activity list (admin only)")
+async def stats_members(
+    chat_id: ChatIdQuery,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.admin)),
+) -> list[dict]:
+    """
+    Returns all users who have ever sent a message in the chat, with activity
+    metrics derived from stats_messages and stats_reactions.
+    Active = last activity within 90 days.
+    """
+    from datetime import timedelta
+    rows = (await session.execute(text("""
+        SELECT
+            m.from_user AS user_id,
+            COALESCE(un.display_name, u.first_name)          AS display_name,
+            COALESCE(un.username, u.username)                 AS username,
+            u.photo_url,
+            COUNT(DISTINCT m.id)                              AS message_count,
+            COALESCE(r.reaction_count, 0)                     AS reaction_count,
+            MIN(m.date)                                       AS first_seen_at,
+            MAX(m.date)                                       AS last_message_at,
+            COALESCE(r.last_reaction_at, 'epoch'::timestamptz) AS last_reaction_at,
+            GREATEST(MAX(m.date), COALESCE(r.last_reaction_at, 'epoch'::timestamptz)) AS last_active_at
+        FROM stats_messages m
+        LEFT JOIN users u ON u.id = m.from_user
+        LEFT JOIN LATERAL (
+            SELECT username, display_name
+            FROM stats_user_names
+            WHERE user_id = m.from_user
+            ORDER BY date DESC
+            LIMIT 1
+        ) un ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS reaction_count, MAX(date) AS last_reaction_at
+            FROM stats_reactions
+            WHERE user_id = m.from_user AND chat_id = :chat_id
+        ) r ON true
+        WHERE m.chat_id = :chat_id AND m.from_user IS NOT NULL
+        GROUP BY m.from_user, u.first_name, u.username, u.photo_url,
+                 un.username, un.display_name, r.reaction_count, r.last_reaction_at
+        ORDER BY last_active_at DESC
+        LIMIT 500
+    """), {"chat_id": chat_id})).fetchall()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    return [
+        {
+            "user_id": row.user_id,
+            "display_name": row.display_name,
+            "username": row.username,
+            "has_photo": row.photo_url is not None,
+            "message_count": row.message_count,
+            "reaction_count": row.reaction_count,
+            "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
+            "last_active_at": row.last_active_at.isoformat() if row.last_active_at else None,
+            "is_active": bool(row.last_active_at and row.last_active_at > cutoff),
+        }
+        for row in rows
+    ]
+
+
+@router.post("/members/sync", summary="Fetch full member list via user-mode session (admin+)")
+async def stats_members_sync(
+    chat_id: ChatIdQuery,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.admin)),
+) -> list[dict]:
+    """
+    Fetches all chat members via user-mode session (getChatMembers) and merges
+    them with local stats data. Returns the same shape as GET /stats/members
+    but includes users who never sent a message (member_count=0).
+    Requires user-mode session to be available.
+    """
+    from yoink.core.services.user_session import UserSessionError, UserSessionService
+    svc: UserSessionService | None = None
+    if hasattr(request.app.state, "bot_data"):
+        svc = request.app.state.bot_data.get("user_session")
+    if svc is None or not svc.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="User-mode session not available",
+        )
+
+    # Fetch all members page by page
+    all_members: list[dict] = []
+    offset = 0
+    limit = 200
+    while True:
+        try:
+            result = await svc.get_chat_members(chat_id=chat_id, offset=offset, limit=limit)
+        except UserSessionError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        batch = result.get("members", [])
+        all_members.extend(batch)
+        if len(batch) < limit:
+            break
+        offset += limit
+
+    # Build user_id -> member info map
+    member_map: dict[int, dict] = {}
+    for m in all_members:
+        uid = m.get("user_id")
+        if uid:
+            member_map[uid] = m
+
+    # Load stats for all known users in this chat
+    stats_rows = (await session.execute(text("""
+        SELECT
+            m.from_user AS user_id,
+            COALESCE(un.display_name, u.first_name)           AS display_name,
+            COALESCE(un.username, u.username)                  AS username,
+            u.photo_url,
+            COUNT(DISTINCT m.id)                               AS message_count,
+            COALESCE(r.reaction_count, 0)                      AS reaction_count,
+            MIN(m.date)                                        AS first_seen_at,
+            MAX(m.date)                                        AS last_message_at,
+            COALESCE(r.last_reaction_at, 'epoch'::timestamptz) AS last_reaction_at,
+            GREATEST(MAX(m.date), COALESCE(r.last_reaction_at, 'epoch'::timestamptz)) AS last_active_at
+        FROM stats_messages m
+        LEFT JOIN users u ON u.id = m.from_user
+        LEFT JOIN LATERAL (
+            SELECT username, display_name FROM stats_user_names
+            WHERE user_id = m.from_user ORDER BY date DESC LIMIT 1
+        ) un ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS reaction_count, MAX(date) AS last_reaction_at
+            FROM stats_reactions
+            WHERE user_id = m.from_user AND chat_id = :chat_id
+        ) r ON true
+        WHERE m.chat_id = :chat_id AND m.from_user IS NOT NULL
+        GROUP BY m.from_user, u.first_name, u.username, u.photo_url,
+                 un.username, un.display_name, r.reaction_count, r.last_reaction_at
+    """), {"chat_id": chat_id})).fetchall()
+
+    stats_by_uid = {row.user_id: row for row in stats_rows}
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+
+    result_list: list[dict] = []
+
+    # Members from session - merge with stats
+    for uid, member in member_map.items():
+        row = stats_by_uid.get(uid)
+        if row:
+            result_list.append({
+                "user_id": uid,
+                "display_name": row.display_name,
+                "username": row.username,
+                "has_photo": row.photo_url is not None,
+                "message_count": row.message_count,
+                "reaction_count": row.reaction_count,
+                "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
+                "last_active_at": row.last_active_at.isoformat() if row.last_active_at else None,
+                "is_active": bool(row.last_active_at and row.last_active_at > cutoff),
+                "in_chat": True,
+            })
+        else:
+            # Member present in chat but no messages recorded
+            result_list.append({
+                "user_id": uid,
+                "display_name": None,
+                "username": None,
+                "has_photo": False,
+                "message_count": 0,
+                "reaction_count": 0,
+                "first_seen_at": None,
+                "last_active_at": None,
+                "is_active": False,
+                "in_chat": True,
+            })
+
+    # Users with stats but not in member list (left the chat)
+    for uid, row in stats_by_uid.items():
+        if uid not in member_map:
+            result_list.append({
+                "user_id": uid,
+                "display_name": row.display_name,
+                "username": row.username,
+                "has_photo": row.photo_url is not None,
+                "message_count": row.message_count,
+                "reaction_count": row.reaction_count,
+                "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
+                "last_active_at": row.last_active_at.isoformat() if row.last_active_at else None,
+                "is_active": bool(row.last_active_at and row.last_active_at > cutoff),
+                "in_chat": False,
+            })
+
+    result_list.sort(key=lambda x: (not x["is_active"], -(x["message_count"] or 0)))
+    return result_list
+
+
 @router.post("/import", response_model=ImportStatus, summary="Import Telegram Desktop chat export (result.json)")
 async def import_history(
     background_tasks: BackgroundTasks,

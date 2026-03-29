@@ -7,7 +7,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yoink_stats.storage.models import ChatMessage, UserEvent, UserNameHistory
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from yoink_stats.storage.models import ChatMessage, Reaction, UserEvent, UserNameHistory
 
 
 class MessageRepo:
@@ -67,6 +69,60 @@ class UserEventRepo:
             await s.commit()
             await s.refresh(ev)
             return ev
+
+
+class ReactionRepo:
+    def __init__(self, sf: async_sessionmaker) -> None:
+        self._sf = sf
+
+    async def upsert(
+        self,
+        user_id: int,
+        chat_id: int,
+        message_id: int,
+        reaction_key: str,
+        reaction_type: str,
+        date: datetime,
+    ) -> None:
+        async with self._sf() as s:
+            stmt = (
+                pg_insert(Reaction)
+                .values(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reaction_key=reaction_key,
+                    reaction_type=reaction_type,
+                    date=date,
+                )
+                .on_conflict_do_update(
+                    constraint="uq_stats_reactions_user_msg_key",
+                    set_={"date": date, "reaction_type": reaction_type},
+                )
+            )
+            await s.execute(stmt)
+            await s.commit()
+
+    async def delete(
+        self,
+        user_id: int,
+        chat_id: int,
+        message_id: int,
+        reaction_key: str,
+    ) -> None:
+        async with self._sf() as s:
+            result = await s.execute(
+                select(Reaction).where(
+                    Reaction.user_id == user_id,
+                    Reaction.chat_id == chat_id,
+                    Reaction.message_id == message_id,
+                    Reaction.reaction_key == reaction_key,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is not None:
+                await s.delete(row)
+                await s.commit()
 
 
 class UserNameRepo:

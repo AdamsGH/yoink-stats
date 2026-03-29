@@ -61,6 +61,24 @@ class UserEvent(Base):
     event: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
+class Reaction(Base):
+    """Per-user reactions on messages in monitored groups."""
+    __tablename__ = "stats_reactions"
+    __table_args__ = (
+        __import__("sqlalchemy").Index("idx_stats_reactions_user_chat", "user_id", "chat_id"),
+        __import__("sqlalchemy").Index("idx_stats_reactions_chat_date", "chat_id", "date"),
+        __import__("sqlalchemy").UniqueConstraint("user_id", "chat_id", "message_id", "reaction_key", name="uq_stats_reactions_user_msg_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    reaction_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    reaction_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+
+
 class UserNameHistory(Base):
     """Username/display-name history per user, temporal log."""
     __tablename__ = "stats_user_names"

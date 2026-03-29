@@ -20,8 +20,8 @@ class StatsPlugin:
         return StatsConfig
 
     def get_models(self) -> list:
-        from yoink_stats.storage.models import ChatMessage, UserEvent, UserNameHistory
-        return [ChatMessage, UserEvent, UserNameHistory]
+        from yoink_stats.storage.models import ChatMessage, Reaction, UserEvent, UserNameHistory
+        return [ChatMessage, Reaction, UserEvent, UserNameHistory]
 
     def get_features(self) -> list:
         from yoink.core.plugin import FeatureSpec
@@ -124,7 +124,7 @@ class StatsPlugin:
           "stats_config"        - StatsConfig
         """
         from yoink_stats.analytics.runner import StatsRunner
-        from yoink_stats.storage.repos import MessageRepo, UserEventRepo, UserNameRepo
+        from yoink_stats.storage.repos import MessageRepo, ReactionRepo, UserEventRepo, UserNameRepo
 
         sf = ctx.session_factory
         bd = ctx.bot_data
@@ -133,4 +133,5 @@ class StatsPlugin:
         bd["stats_message_repo"] = MessageRepo(sf)
         bd["stats_event_repo"] = UserEventRepo(sf)
         bd["stats_name_repo"] = UserNameRepo(sf)
+        bd["stats_reaction_repo"] = ReactionRepo(sf)
         bd["stats_runner"] = StatsRunner(sf)
