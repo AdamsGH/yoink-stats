@@ -1191,15 +1191,24 @@ async def stats_members_sync(
         )
         await session.execute(stmt)
 
-    # Mark everyone NOT in the live list as left
-    # Use raw connection to pass bigint array natively via asyncpg
-    if live_uids:
-        raw = await session.connection()
-        await raw.exec_driver_sql(
-            "UPDATE stats_group_members SET in_chat = false, synced_at = $1 "
-            "WHERE chat_id = $2 AND user_id != ALL($3)",
-            (now, chat_id, list(live_uids)),
+    # All users known for this chat (from messages) who are NOT in live_uids = left
+    # Upsert them as in_chat=false so they appear in the left filter
+    all_senders = (await session.execute(
+        text("SELECT DISTINCT from_user FROM stats_messages WHERE chat_id = :chat_id AND from_user IS NOT NULL"),
+        {"chat_id": chat_id},
+    )).scalars().all()
+
+    left_uids = [uid for uid in all_senders if uid not in live_uids]
+    for uid in left_uids:
+        stmt = (
+            pg_insert(GroupMember)
+            .values(chat_id=chat_id, user_id=uid, in_chat=False, status=None, joined_date=None, synced_at=now)
+            .on_conflict_do_update(
+                constraint="uq_sgm_chat_user",
+                set_={"in_chat": False, "synced_at": now},
+            )
         )
+        await session.execute(stmt)
 
     await session.commit()
 
