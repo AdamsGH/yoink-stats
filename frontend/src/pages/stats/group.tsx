@@ -90,6 +90,25 @@ interface MemberEvent {
   left: number
 }
 
+interface ReactionGiver {
+  user_id: number
+  display_name: string | null
+  username: string | null
+  has_photo: boolean
+  reaction_count: number
+}
+
+interface TopEmoji {
+  reaction_key: string
+  reaction_type: string
+  count: number
+}
+
+interface TopReactions {
+  top_givers: ReactionGiver[]
+  top_emoji: TopEmoji[]
+}
+
 interface GroupData {
   overview: StatsOverview
   topUsers: TopUser[]
@@ -102,6 +121,7 @@ interface GroupData {
   avgLength: AvgMessageLength[]
   responseTime: ResponseTimeData | null
   mediaTrend: MediaTrend[]
+  topReactions: TopReactions | null
 }
 
 interface PeriodData {
@@ -291,7 +311,7 @@ function MembersTab({ chatId }: { chatId: number }) {
       .finally(() => setSyncing(false))
   }
 
-  const hasChatInfo = (members ?? []).some((m) => m.in_chat !== undefined)
+  const hasChatInfo = (members ?? []).some((m) => m.in_chat === true || m.in_chat === false)
 
   const filtered = (members ?? []).filter((m) => {
     if (filter === 'active' && !m.is_active) return false
@@ -441,7 +461,7 @@ export default function StatsGroupPage() {
         setData((prev) => prev ? { ...prev, overview: overviewRes.data } : {
           overview: overviewRes.data,
           topUsers: [], byHour: [], byDay: [], types: [], words: [], byMonth: [], mentions: [],
-          avgLength: [], responseTime: null, mediaTrend: [],
+          avgLength: [], responseTime: null, mediaTrend: [], topReactions: null,
         })
       })
       .catch(() => toast.error('Failed to load group stats'))
@@ -467,10 +487,11 @@ export default function StatsGroupPage() {
       apiClient.get<AvgMessageLength[]>('/stats/avg-message-length', { params: { ...p, limit: 10 } }),
       apiClient.get<ResponseTimeData>('/stats/response-time', { params: { ...p, limit: 10 } }),
       apiClient.get<MediaTrend[]>('/stats/media-trend', { params: p }),
+      isAdmin ? apiClient.get<TopReactions>('/stats/top-reactions', { params: { ...p, limit: 10 } }).catch(() => null) : Promise.resolve(null),
     ])
-      .then(([usersRes, hourRes, dayRes, typesRes, wordsRes, monthRes, mentionRes, dailyRes, eventsRes, avgLenRes, rtRes, mtRes]) => {
+      .then(([usersRes, hourRes, dayRes, typesRes, wordsRes, monthRes, mentionRes, dailyRes, eventsRes, avgLenRes, rtRes, mtRes, reactRes]) => {
         setData((prev) => ({
-          overview: prev?.overview ?? { chat_id: numericChatId, total_messages: 0, unique_users: 0, first_date: null, last_date: null },
+          overview: prev?.overview ?? { chat_id: numericChatId, total_messages: 0, unique_users: 0, total_reactions: 0, first_date: null, last_date: null },
           topUsers: usersRes.data,
           byHour: hourRes.data,
           byDay: dayRes.data,
@@ -481,6 +502,7 @@ export default function StatsGroupPage() {
           avgLength: avgLenRes.data,
           responseTime: rtRes.data,
           mediaTrend: mtRes.data,
+          topReactions: reactRes ? reactRes.data : null,
         }))
         setPeriodData({ daily: dailyRes.data, memberEvents: eventsRes.data })
       })
@@ -605,6 +627,9 @@ export default function StatsGroupPage() {
                 <StatCard label="Avg / day" value={avgPerDay} />
                 <StatCard label="Peak hour" value={peakHour} />
                 <StatCard label="Peak day" value={peakDay} />
+                {isAdmin && data.overview.total_reactions > 0 && (
+                  <StatCard label="Reactions" value={data.overview.total_reactions} />
+                )}
               </>
             )}
           </div>
@@ -942,6 +967,31 @@ export default function StatsGroupPage() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+          )}
+
+          {isAdmin && data?.topReactions && (data.topReactions.top_givers.length > 0 || data.topReactions.top_emoji.length > 0) && (
+            <div className="grid grid-cols-2 gap-3">
+              {data.topReactions.top_givers.length > 0 && (
+                <Card>
+                  <CardHeader className="px-4 py-3">
+                    <CardTitle className="text-sm">Top reaction givers</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-4 pb-3">
+                    <RankedList items={data.topReactions.top_givers.map(u => ({ label: u.display_name ?? u.username ?? String(u.user_id), value: u.reaction_count }))} labelKey="label" valueKey="value" />
+                  </CardContent>
+                </Card>
+              )}
+              {data.topReactions.top_emoji.length > 0 && (
+                <Card>
+                  <CardHeader className="px-4 py-3">
+                    <CardTitle className="text-sm">Top emoji</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-4 pb-3">
+                    <RankedList items={data.topReactions.top_emoji.map(e => ({ label: e.reaction_type === 'emoji' ? e.reaction_key : `[custom]`, value: e.count }))} labelKey="label" valueKey="value" />
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           )}
         </TabsContent>
 

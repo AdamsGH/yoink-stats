@@ -198,10 +198,16 @@ async def stats_overview(
         )
     )).fetchone()
 
+    from yoink_stats.storage.models import Reaction
+    total_reactions = (await session.execute(
+        select(func.count(Reaction.id)).where(Reaction.chat_id == chat_id)
+    )).scalar_one()
+
     return {
         "chat_id": chat_id,
         "total_messages": total,
         "unique_users": unique_users,
+        "total_reactions": total_reactions,
         "first_date": date_range[0].isoformat() if date_range and date_range[0] else None,
         "last_date": date_range[1].isoformat() if date_range and date_range[1] else None,
     }
@@ -968,6 +974,71 @@ class ImportStatus(BaseModel):
 _import_jobs: dict[str, ImportStatus] = {}
 
 
+@router.get("/top-reactions", summary="Top reaction givers and most used emoji (admin only)")
+async def stats_top_reactions(
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
+    limit: int = Query(10, ge=1, le=50),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.admin)),
+) -> dict:
+    """Top users by reactions given, and most-used emoji in the chat."""
+    since = _since_param(days)
+    date_filter = "AND r.date >= :since" if since else ""
+    params: dict = {"chat_id": chat_id, "limit": limit}
+    if since:
+        params["since"] = since
+
+    top_givers = (await session.execute(text(f"""
+        SELECT
+            r.user_id,
+            COALESCE(un.display_name, u.first_name) AS display_name,
+            COALESCE(un.username, u.username)        AS username,
+            u.photo_url,
+            COUNT(*) AS reaction_count
+        FROM stats_reactions r
+        LEFT JOIN users u ON u.id = r.user_id
+        LEFT JOIN LATERAL (
+            SELECT username, display_name FROM stats_user_names
+            WHERE user_id = r.user_id ORDER BY date DESC LIMIT 1
+        ) un ON true
+        WHERE r.chat_id = :chat_id {date_filter}
+        GROUP BY r.user_id, u.first_name, u.username, u.photo_url, un.username, un.display_name
+        ORDER BY reaction_count DESC
+        LIMIT :limit
+    """), params)).fetchall()
+
+    top_emoji = (await session.execute(text(f"""
+        SELECT reaction_key, reaction_type, COUNT(*) AS cnt
+        FROM stats_reactions r
+        WHERE chat_id = :chat_id AND reaction_type IN ('emoji', 'custom_emoji') {date_filter}
+        GROUP BY reaction_key, reaction_type
+        ORDER BY cnt DESC
+        LIMIT :limit
+    """), params)).fetchall()
+
+    return {
+        "top_givers": [
+            {
+                "user_id": row.user_id,
+                "display_name": row.display_name,
+                "username": row.username,
+                "has_photo": row.photo_url is not None,
+                "reaction_count": row.reaction_count,
+            }
+            for row in top_givers
+        ],
+        "top_emoji": [
+            {
+                "reaction_key": row.reaction_key,
+                "reaction_type": row.reaction_type,
+                "count": row.cnt,
+            }
+            for row in top_emoji
+        ],
+    }
+
+
 @router.get("/members", summary="Chat member activity list (admin only)")
 async def stats_members(
     chat_id: ChatIdQuery,
@@ -1025,6 +1096,7 @@ async def stats_members(
             "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
             "last_active_at": row.last_active_at.isoformat() if row.last_active_at else None,
             "is_active": bool(row.last_active_at and row.last_active_at > cutoff),
+            "in_chat": None,
         }
         for row in rows
     ]
@@ -1054,24 +1126,27 @@ async def stats_members_sync(
         )
 
     # Fetch all members page by page
+    # Response is a plain list: [{user: {id, ...}, status, joined_date}, ...]
     all_members: list[dict] = []
     offset = 0
     limit = 200
     while True:
         try:
-            result = await svc.get_chat_members(chat_id=chat_id, offset=offset, limit=limit)
+            batch = await svc.get_chat_members(chat_id=chat_id, offset=offset, limit=limit)
         except UserSessionError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-        batch = result.get("members", [])
+        if not isinstance(batch, list):
+            batch = []
         all_members.extend(batch)
         if len(batch) < limit:
             break
         offset += limit
 
-    # Build user_id -> member info map
+    # Build user_id -> member info map (uid from member["user"]["id"])
     member_map: dict[int, dict] = {}
     for m in all_members:
-        uid = m.get("user_id")
+        user_obj = m.get("user") or {}
+        uid = user_obj.get("id")
         if uid:
             member_map[uid] = m
 
@@ -1126,11 +1201,15 @@ async def stats_members_sync(
                 "in_chat": True,
             })
         else:
-            # Member present in chat but no messages recorded
+            # Member present in chat but no messages recorded — use data from session
+            user_obj = m.get("user") or {}
+            first = user_obj.get("first_name", "")
+            last = user_obj.get("last_name", "")
+            display = " ".join(filter(None, [first, last])) or None
             result_list.append({
                 "user_id": uid,
-                "display_name": None,
-                "username": None,
+                "display_name": display,
+                "username": user_obj.get("username"),
                 "has_photo": False,
                 "message_count": 0,
                 "reaction_count": 0,

@@ -8,6 +8,7 @@ export interface StatsOverview {
   chat_id: number
   total_messages: number
   unique_users: number
+  total_reactions: number
   first_date: string | null
   last_date: string | null
 }
