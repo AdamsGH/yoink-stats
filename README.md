@@ -50,11 +50,11 @@ All endpoints accept `chat_id` and optional `days` (7/30/90) query parameters.
 
 Interactive dashboard at `/stats` in the Telegram WebApp:
 
-- Stats index page: Card with Item list showing groups and message counts
-- Group dashboard: compact header, activity by hour/day, message types, top users, history, DAU, member events
-- **PeriodToggle** component (7d / 30d / 90d) - applies to all charts on the group page
-- **RankedList** component - used for top words and top mentions with ranked rows
-- Per-user detail page (`/stats/:chatId/user/:userId`)
+- Stats index page: single Card with Item list; each row shows group name, message count, period toggle
+- Group dashboard (`/stats/:chatId`): compact header with KPI grid (total messages, active users, avg/day), PeriodToggle (7d/30d/90d), activity charts, top users, history chart, DAU, member events
+- Per-user page (`/stats/:chatId/user/:userId`): individual activity breakdown
+- **RankedList** component: compact ranked rows used for top words and top mentions (replaces heavy horizontal bar charts)
+- **PeriodToggle** component: 7d / 30d / 90d buttons, shared across all charts on a page
 - JSON/CSV export
 - Catppuccin color theme (Latte / Frappe / Macchiato / Mocha)
 - Skeleton loading states
