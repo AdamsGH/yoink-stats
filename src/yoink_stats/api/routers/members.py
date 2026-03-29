@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select, text
@@ -12,59 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yoink.core.api.deps import get_db
 from yoink.core.auth.rbac import require_role, role_gte
 from yoink.core.db.models import User, UserRole
+from yoink.core.db.query import date_params, load_sql
 from yoink_stats.api.routers._deps import ChatIdQuery, DaysQuery, _since_param
 from yoink_stats.storage.models import ChatAdmin
+
+_Q = Path(__file__).parent.parent.parent / "queries"
+_SQL_MEMBERS = load_sql(_Q, "members")
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stats"])
 
-_MEMBERS_SQL = """
-    SELECT
-        all_users.user_id,
-        COALESCE(un.display_name, u.first_name)           AS display_name,
-        COALESCE(un.username, u.username)                  AS username,
-        u.photo_url,
-        COALESCE(msg.message_count, 0)                     AS message_count,
-        COALESCE(r.reaction_count, 0)                      AS reaction_count,
-        msg.first_seen_at,
-        GREATEST(
-            COALESCE(msg.last_message_at, 'epoch'::timestamptz),
-            COALESCE(r.last_reaction_at,  'epoch'::timestamptz)
-        )                                                  AS last_active_at,
-        gm.in_chat,
-        gm.synced_at
-    FROM (
-        SELECT DISTINCT from_user AS user_id
-        FROM stats_messages
-        WHERE chat_id = :chat_id AND from_user IS NOT NULL
-        UNION
-        SELECT DISTINCT user_id
-        FROM stats_group_members
-        WHERE chat_id = :chat_id
-    ) all_users
-    LEFT JOIN users u ON u.id = all_users.user_id
-    LEFT JOIN LATERAL (
-        SELECT username, display_name FROM stats_user_names
-        WHERE user_id = all_users.user_id ORDER BY date DESC LIMIT 1
-    ) un ON true
-    LEFT JOIN LATERAL (
-        SELECT COUNT(*) AS message_count, MIN(date) AS first_seen_at, MAX(date) AS last_message_at
-        FROM stats_messages
-        WHERE chat_id = :chat_id AND from_user = all_users.user_id
-          AND (CAST(:since AS timestamptz) IS NULL OR date >= CAST(:since AS timestamptz))
-    ) msg ON true
-    LEFT JOIN LATERAL (
-        SELECT COUNT(*) AS reaction_count, MAX(date) AS last_reaction_at
-        FROM stats_reactions
-        WHERE chat_id = :chat_id AND user_id = all_users.user_id
-          AND (CAST(:since AS timestamptz) IS NULL OR date >= CAST(:since AS timestamptz))
-    ) r ON true
-    LEFT JOIN stats_group_members gm
-        ON gm.chat_id = :chat_id AND gm.user_id = all_users.user_id
-    ORDER BY last_active_at DESC
-    LIMIT 1000
-"""
+
 
 
 def _member_row_to_dict(row: object, cutoff: datetime) -> dict:
@@ -157,7 +117,7 @@ async def stats_members(
 
     since = _since_param(days)
     cutoff = since or (datetime.now(timezone.utc) - timedelta(days=90))
-    rows = (await session.execute(text(_MEMBERS_SQL), {"chat_id": chat_id, "since": since})).fetchall()
+    rows = (await session.execute(text(_SQL_MEMBERS), date_params(since, chat_id=chat_id))).fetchall()
     return [_member_row_to_dict(row, cutoff) for row in rows]
 
 
@@ -265,5 +225,5 @@ async def stats_members_sync(
     await session.commit()
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-    rows = (await session.execute(text(_MEMBERS_SQL), {"chat_id": chat_id, "since": None})).fetchall()
+    rows = (await session.execute(text(_SQL_MEMBERS), date_params(None, chat_id=chat_id))).fetchall()
     return [_member_row_to_dict(row, cutoff) for row in rows]

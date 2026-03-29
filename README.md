@@ -85,6 +85,29 @@ src/yoink_stats/
   plugin.py              # entry point (StatsPlugin)
   config.py              # StatsConfig
   activity.py            # ActivityProvider registered with core at startup
+  queries/               # SQL files loaded at import time via yoink.core.db.query.load_sql
+    top_users.sql
+    history.sql
+    words.sql
+    mention_stats.sql
+    daily_activity.sql
+    member_events.sql
+    activity_by_day.sql
+    activity_by_week.sql
+    activity_by_month.sql
+    avg_message_length.sql
+    response_time_users.sql
+    response_time_overall.sql
+    media_trend.sql
+    top_reaction_givers.sql
+    top_emoji.sql
+    ecdf.sql
+    title_history.sql
+    user_stats_summary.sql
+    user_stats_reactions.sql
+    user_stats_top_type.sql
+    user_latest_name.sql
+    members.sql
   api/
     router.py            # thin FastAPI router (mounts sub-routers)
     routers/

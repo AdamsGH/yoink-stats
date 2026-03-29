@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import cast, func, select, text, distinct, Integer
@@ -10,11 +11,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yoink.core.api.deps import get_db
 from yoink.core.auth.rbac import require_role, role_gte
 from yoink.core.db.models import Group, User, UserGroupPolicy, UserRole
+from yoink.core.db.query import date_params, load_sql
 from yoink_stats.api.routers._deps import (
     ChatIdQuery, DaysQuery, _check_group_access, _since_param,
 )
 
 router = APIRouter(tags=["stats"])
+
+_Q = Path(__file__).parent.parent.parent / "queries"
+
+_SQL_TOP_USERS          = load_sql(_Q, "top_users")
+_SQL_ACTIVITY_BY_DAY    = load_sql(_Q, "activity_by_day")
+_SQL_ACTIVITY_BY_WEEK   = load_sql(_Q, "activity_by_week")
+_SQL_ACTIVITY_BY_MONTH  = load_sql(_Q, "activity_by_month")
+_SQL_HISTORY            = load_sql(_Q, "history")
+_SQL_WORDS              = load_sql(_Q, "words")
+_SQL_USER_SUMMARY       = load_sql(_Q, "user_stats_summary")
+_SQL_USER_REACTIONS     = load_sql(_Q, "user_stats_reactions")
+_SQL_USER_TOP_TYPE      = load_sql(_Q, "user_stats_top_type")
+_SQL_USER_NAME          = load_sql(_Q, "user_latest_name")
+_SQL_ECDF               = load_sql(_Q, "ecdf")
+_SQL_TITLE_HISTORY      = load_sql(_Q, "title_history")
+_SQL_MENTION_STATS      = load_sql(_Q, "mention_stats")
+_SQL_DAILY_ACTIVITY     = load_sql(_Q, "daily_activity")
+_SQL_MEMBER_EVENTS      = load_sql(_Q, "member_events")
+_SQL_AVG_MSG_LEN        = load_sql(_Q, "avg_message_length")
+_SQL_RESP_TIME_USERS    = load_sql(_Q, "response_time_users")
+_SQL_RESP_TIME_OVERALL  = load_sql(_Q, "response_time_overall")
+_SQL_MEDIA_TREND        = load_sql(_Q, "media_trend")
+_SQL_TOP_GIVERS         = load_sql(_Q, "top_reaction_givers")
+_SQL_TOP_EMOJI          = load_sql(_Q, "top_emoji")
 
 
 @router.get("/groups", summary="List monitored groups with message counts")
@@ -49,57 +75,53 @@ async def stats_groups(
                 )
             )
         else:
-            q = q.where(
-                Group.id.in_(
-                    select(ChatMessage.chat_id).where(
-                        ChatMessage.from_user == current_user.id
-                    ).distinct()
-                )
-            )
+            from yoink_stats.storage.models import ChatMessage as CM  # noqa: PLC0415
+            visible_ids = select(distinct(CM.chat_id)).where(CM.from_user == current_user.id)
+            q = q.where(Group.id.in_(visible_ids))
 
-    rows = (await session.execute(q)).all()
-    return [{"chat_id": row.id, "title": row.title, "message_count": row.message_count or 0} for row in rows]
+    rows = (await session.execute(q)).fetchall()
+    return [{"chat_id": row.id, "title": row.title, "message_count": row.message_count} for row in rows]
 
 
 @router.get("/overview", summary="Chat statistics overview")
 async def stats_overview(
     request: Request,
     chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> dict:
-    """Overview: total messages, unique users, first/last message date, total reactions."""
+    """Summary stats: total messages, unique users, date range."""
     await _check_group_access(chat_id, session, current_user, request)
-    from yoink_stats.storage.models import ChatMessage, Reaction  # noqa: PLC0415
+    from yoink_stats.storage.models import ChatMessage  # noqa: PLC0415
 
-    total = (await session.execute(
-        select(func.count(ChatMessage.id)).where(ChatMessage.chat_id == chat_id)
-    )).scalar_one()
+    since = _since_param(days)
+    q = select(
+        func.count(ChatMessage.id).label("total"),
+        func.count(distinct(ChatMessage.from_user)).label("unique_users"),
+        func.min(ChatMessage.date).label("first_date"),
+        func.max(ChatMessage.date).label("last_date"),
+    ).where(ChatMessage.chat_id == chat_id)
+    if since:
+        q = q.where(ChatMessage.date >= since)
+    row = (await session.execute(q)).fetchone()
+    if not row:
+        return {"total": 0, "unique_users": 0, "first_date": None, "last_date": None, "avg_per_day": 0.0}
 
-    unique_users = (await session.execute(
-        select(func.count(distinct(ChatMessage.from_user))).where(
-            ChatMessage.chat_id == chat_id,
-            ChatMessage.from_user.isnot(None),
-        )
-    )).scalar_one()
-
-    date_range = (await session.execute(
-        select(func.min(ChatMessage.date), func.max(ChatMessage.date)).where(
-            ChatMessage.chat_id == chat_id
-        )
-    )).fetchone()
-
-    total_reactions = (await session.execute(
-        select(func.count(Reaction.id)).where(Reaction.chat_id == chat_id)
-    )).scalar_one()
-
+    total = row.total or 0
+    first_date: datetime | None = row.first_date
+    last_date: datetime | None = row.last_date
+    if first_date and last_date:
+        span = max((last_date - first_date).days, 1)
+        avg = round(total / span, 2)
+    else:
+        avg = 0.0
     return {
-        "chat_id": chat_id,
-        "total_messages": total,
-        "unique_users": unique_users,
-        "total_reactions": total_reactions,
-        "first_date": date_range[0].isoformat() if date_range and date_range[0] else None,
-        "last_date": date_range[1].isoformat() if date_range and date_range[1] else None,
+        "total": total,
+        "unique_users": row.unique_users or 0,
+        "first_date": first_date.isoformat() if first_date else None,
+        "last_date": last_date.isoformat() if last_date else None,
+        "avg_per_day": avg,
     }
 
 
@@ -107,49 +129,22 @@ async def stats_overview(
 async def stats_top_users(
     request: Request,
     chat_id: ChatIdQuery,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=100),
     days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
-    """Top message senders, optionally filtered by a days window."""
+    """Top N message senders with username, display name and avatar flag."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id, "limit": limit}
-    date_filter = "AND m.date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT
-            m.from_user,
-            COUNT(m.id) AS cnt,
-            COALESCE(un.username, u.username) AS username,
-            COALESCE(un.display_name, u.first_name) AS display_name,
-            u.photo_url
-        FROM stats_messages m
-        LEFT JOIN LATERAL (
-            SELECT username, display_name
-            FROM stats_user_names
-            WHERE user_id = m.from_user
-            ORDER BY date DESC
-            LIMIT 1
-        ) un ON TRUE
-        LEFT JOIN users u ON u.id = m.from_user
-        WHERE m.chat_id = :chat_id
-          AND m.from_user IS NOT NULL
-          {date_filter}
-        GROUP BY m.from_user, un.username, un.display_name, u.username, u.first_name, u.photo_url
-        ORDER BY cnt DESC
-        LIMIT :limit
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_TOP_USERS),
+        date_params(since, chat_id=chat_id, limit=limit),
+    )).fetchall()
     return [
         {
-            "user_id": row.from_user,
-            "username": row.username,
-            "display_name": row.display_name,
-            "count": row.cnt,
+            "user_id": row.from_user, "username": row.username,
+            "display_name": row.display_name, "count": int(row.cnt),
             "has_photo": row.photo_url is not None,
         }
         for row in rows
@@ -174,7 +169,6 @@ async def stats_activity_by_hour(
     if since:
         q = q.where(ChatMessage.date >= since)
     rows = (await session.execute(q.group_by(hour_col).order_by(hour_col))).fetchall()
-
     data = {row.hour: row.count for row in rows}
     return [{"hour": h, "count": data.get(h, 0)} for h in range(24)]
 
@@ -190,19 +184,10 @@ async def stats_activity_by_day(
     """Message count by day of week (0=Mon, 6=Sun)."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id}
-    date_filter = "AND date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT ((EXTRACT(DOW FROM date)::int + 6) % 7) AS dow, COUNT(id) AS cnt
-        FROM stats_messages
-        WHERE chat_id = :chat_id {date_filter}
-        GROUP BY dow
-        ORDER BY dow
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_ACTIVITY_BY_DAY),
+        date_params(since, chat_id=chat_id),
+    )).fetchall()
     data = {int(row.dow): row.cnt for row in rows}
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     return [{"day": d, "day_name": day_names[d], "count": data.get(d, 0)} for d in range(7)]
@@ -219,21 +204,10 @@ async def stats_activity_by_week(
     """Message count by day+hour for heatmap (day=0-6 Mon=0, hour=0-23)."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id}
-    date_filter = "AND date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT
-            ((EXTRACT(DOW FROM date)::int + 6) % 7) AS dow,
-            EXTRACT(HOUR FROM date)::int AS hour,
-            COUNT(id) AS cnt
-        FROM stats_messages
-        WHERE chat_id = :chat_id {date_filter}
-        GROUP BY dow, hour
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_ACTIVITY_BY_WEEK),
+        date_params(since, chat_id=chat_id),
+    )).fetchall()
     return [{"day": int(row.dow), "hour": int(row.hour), "count": int(row.cnt)} for row in rows]
 
 
@@ -268,23 +242,11 @@ async def stats_history(
 ) -> list[dict]:
     """Daily message counts. If days is omitted, returns all history."""
     await _check_group_access(chat_id, session, current_user, request)
-
-    if days is not None:
-        since = datetime.now(timezone.utc) - timedelta(days=days)
-        rows = (await session.execute(text("""
-            SELECT DATE(date AT TIME ZONE 'UTC') AS day, COUNT(id) AS cnt
-            FROM stats_messages
-            WHERE chat_id = :chat_id AND date >= :since
-            GROUP BY day ORDER BY day
-        """), {"chat_id": chat_id, "since": since})).fetchall()
-    else:
-        rows = (await session.execute(text("""
-            SELECT DATE(date AT TIME ZONE 'UTC') AS day, COUNT(id) AS cnt
-            FROM stats_messages
-            WHERE chat_id = :chat_id
-            GROUP BY day ORDER BY day
-        """), {"chat_id": chat_id})).fetchall()
-
+    since = _since_param(days)
+    rows = (await session.execute(
+        text(_SQL_HISTORY),
+        date_params(since, chat_id=chat_id),
+    )).fetchall()
     return [{"date": str(row.day), "count": int(row.cnt)} for row in rows]
 
 
@@ -300,39 +262,10 @@ async def stats_words(
     """Top words from text messages. Optional days window."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id, "limit": limit}
-    date_filter = "AND date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(rf"""
-        WITH messages AS (
-            SELECT COALESCE(text, '') || ' ' || COALESCE(caption, '') AS body
-            FROM stats_messages
-            WHERE chat_id = :chat_id
-              AND (text IS NOT NULL OR caption IS NOT NULL)
-              {date_filter}
-        ),
-        words AS (
-            SELECT lower(regexp_replace(w, '[^\w]|[\d_]', '', 'g')) AS word
-            FROM messages,
-                 regexp_split_to_table(body, '\s+') AS w
-            WHERE char_length(regexp_replace(w, '[^\w]|[\d_]', '', 'g')) >= 3
-        )
-        SELECT word, COUNT(*) AS cnt
-        FROM words
-        WHERE word NOT IN (
-            'the','a','an','in','on','at','to','of','is','it','and','or',
-            'but','for','with','это','как','что','так','все','там','уже',
-            'мне','его','она','они','ещё','был','не','да','же','вот','то',
-            'из','он','по','до','во','от','со','при','за','над','под','для'
-        )
-          AND word <> ''
-        GROUP BY word
-        ORDER BY cnt DESC
-        LIMIT :limit
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_WORDS),
+        date_params(since, chat_id=chat_id, limit=limit),
+    )).fetchall()
     return [{"word": row.word, "count": int(row.cnt)} for row in rows]
 
 
@@ -347,17 +280,13 @@ async def stats_user(
     """Per-user stats: total, first/last date, avg/day, top type, reaction count."""
     await _check_group_access(chat_id, session, current_user, request)
 
-    summary = (await session.execute(text("""
-        SELECT COUNT(id) AS total, MIN(date) AS first_date, MAX(date) AS last_date
-        FROM stats_messages
-        WHERE chat_id = :chat_id AND from_user = :user_id
-    """), {"chat_id": chat_id, "user_id": user_id})).fetchone()
+    summary = (await session.execute(
+        text(_SQL_USER_SUMMARY), {"chat_id": chat_id, "user_id": user_id},
+    )).fetchone()
 
-    reaction_row = (await session.execute(text("""
-        SELECT COUNT(*) AS reaction_count
-        FROM stats_reactions
-        WHERE chat_id = :chat_id AND user_id = :user_id
-    """), {"chat_id": chat_id, "user_id": user_id})).fetchone()
+    reaction_row = (await session.execute(
+        text(_SQL_USER_REACTIONS), {"chat_id": chat_id, "user_id": user_id},
+    )).fetchone()
     reaction_count = int(reaction_row.reaction_count) if reaction_row else 0
 
     if not summary or not summary.total:
@@ -367,17 +296,13 @@ async def stats_user(
             "first_date": None, "last_date": None, "avg_per_day": 0.0, "top_type": None,
         }
 
-    top_type_row = (await session.execute(text("""
-        SELECT msg_type, COUNT(id) AS cnt
-        FROM stats_messages
-        WHERE chat_id = :chat_id AND from_user = :user_id
-        GROUP BY msg_type ORDER BY cnt DESC LIMIT 1
-    """), {"chat_id": chat_id, "user_id": user_id})).fetchone()
+    top_type_row = (await session.execute(
+        text(_SQL_USER_TOP_TYPE), {"chat_id": chat_id, "user_id": user_id},
+    )).fetchone()
 
-    name_row = (await session.execute(text("""
-        SELECT username, display_name FROM stats_user_names
-        WHERE user_id = :user_id ORDER BY date DESC LIMIT 1
-    """), {"user_id": user_id})).fetchone()
+    name_row = (await session.execute(
+        text(_SQL_USER_NAME), {"user_id": user_id},
+    )).fetchone()
 
     total = int(summary.total)
     first_date: datetime = summary.first_date
@@ -408,21 +333,27 @@ async def stats_activity_by_month(
     """Message count per calendar month. Defaults to the last 12 months when year is omitted."""
     await _check_group_access(chat_id, session, current_user, request)
     if year is not None:
-        rows = (await session.execute(text("""
-            SELECT TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS month, COUNT(id) AS cnt
-            FROM stats_messages
-            WHERE chat_id = :chat_id AND EXTRACT(YEAR FROM date) = :year
-            GROUP BY month ORDER BY month
-        """), {"chat_id": chat_id, "year": year})).fetchall()
+        since = datetime(year, 1, 1, tzinfo=timezone.utc)
+        until = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        from yoink_stats.storage.models import ChatMessage  # noqa: PLC0415
+        q = (
+            select(
+                func.to_char(func.date_trunc("month", ChatMessage.date), "YYYY-MM").label("month"),
+                func.count(ChatMessage.id).label("cnt"),
+            )
+            .where(ChatMessage.chat_id == chat_id)
+            .where(ChatMessage.date >= since)
+            .where(ChatMessage.date < until)
+            .group_by(text("month"))
+            .order_by(text("month"))
+        )
+        rows = (await session.execute(q)).fetchall()
     else:
         since = datetime.now(timezone.utc) - timedelta(days=365)
-        rows = (await session.execute(text("""
-            SELECT TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS month, COUNT(id) AS cnt
-            FROM stats_messages
-            WHERE chat_id = :chat_id AND date >= :since
-            GROUP BY month ORDER BY month
-        """), {"chat_id": chat_id, "since": since})).fetchall()
-
+        rows = (await session.execute(
+            text(_SQL_ACTIVITY_BY_MONTH),
+            date_params(since, chat_id=chat_id),
+        )).fetchall()
     return [{"month": row.month, "count": int(row.cnt)} for row in rows]
 
 
@@ -436,41 +367,9 @@ async def stats_ecdf(
 ) -> list[dict]:
     """Message count distribution across users with cumulative percentages."""
     await _check_group_access(chat_id, session, current_user, request)
-    rows = (await session.execute(text("""
-        WITH per_user AS (
-            SELECT
-                m.from_user,
-                COUNT(m.id) AS cnt,
-                un.username,
-                un.display_name
-            FROM stats_messages m
-            LEFT JOIN LATERAL (
-                SELECT username, display_name
-                FROM stats_user_names
-                WHERE user_id = m.from_user
-                ORDER BY date DESC
-                LIMIT 1
-            ) un ON TRUE
-            WHERE m.chat_id = :chat_id AND m.from_user IS NOT NULL
-            GROUP BY m.from_user, un.username, un.display_name
-            ORDER BY cnt DESC
-            LIMIT :limit
-        ),
-        total AS (SELECT SUM(cnt) AS grand_total FROM per_user)
-        SELECT
-            p.from_user,
-            p.cnt,
-            p.username,
-            p.display_name,
-            ROUND(
-                SUM(p.cnt) OVER (ORDER BY p.cnt DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
-                * 100.0 / NULLIF(t.grand_total, 0),
-                1
-            ) AS cumulative_pct
-        FROM per_user p, total t
-        ORDER BY p.cnt DESC
-    """), {"chat_id": chat_id, "limit": limit})).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_ECDF), {"chat_id": chat_id, "limit": limit},
+    )).fetchall()
     return [
         {
             "user_id": row.from_user,
@@ -492,17 +391,7 @@ async def stats_title_history(
 ) -> list[dict]:
     """History of chat title changes."""
     await _check_group_access(chat_id, session, current_user, request)
-    rows = (await session.execute(text("""
-        SELECT m.date, m.new_chat_title, m.from_user, un.username, un.display_name
-        FROM stats_messages m
-        LEFT JOIN LATERAL (
-            SELECT username, display_name FROM stats_user_names
-            WHERE user_id = m.from_user ORDER BY date DESC LIMIT 1
-        ) un ON TRUE
-        WHERE m.chat_id = :chat_id AND m.msg_type = 'new_chat_title'
-        ORDER BY m.date
-    """), {"chat_id": chat_id})).fetchall()
-
+    rows = (await session.execute(text(_SQL_TITLE_HISTORY), {"chat_id": chat_id})).fetchall()
     return [
         {
             "date": row.date.isoformat() if row.date else None,
@@ -526,21 +415,10 @@ async def stats_mention_stats(
     """Top @mentions extracted from text messages."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id, "limit": limit}
-    date_filter = "AND date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT lower(m[1]) AS mention, COUNT(*) AS cnt
-        FROM stats_messages,
-             regexp_matches(COALESCE(text, ''), '@([a-zA-Z0-9_]{{4,}})', 'g') AS m
-        WHERE chat_id = :chat_id {date_filter}
-        GROUP BY mention
-        ORDER BY cnt DESC
-        LIMIT :limit
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_MENTION_STATS),
+        date_params(since, chat_id=chat_id, limit=limit),
+    )).fetchall()
     return [{"mention": f"@{row.mention}", "count": int(row.cnt)} for row in rows]
 
 
@@ -555,21 +433,10 @@ async def stats_daily_activity(
     """Per-day message count and unique active users (DAU)."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id}
-    date_filter = "AND date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT
-            DATE(date AT TIME ZONE 'UTC') AS day,
-            COUNT(id) AS messages,
-            COUNT(DISTINCT from_user) FILTER (WHERE from_user IS NOT NULL) AS dau
-        FROM stats_messages
-        WHERE chat_id = :chat_id {date_filter}
-        GROUP BY day ORDER BY day
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_DAILY_ACTIVITY),
+        date_params(since, chat_id=chat_id),
+    )).fetchall()
     return [{"date": str(row.day), "messages": int(row.messages), "dau": int(row.dau)} for row in rows]
 
 
@@ -584,21 +451,10 @@ async def stats_member_events(
     """Daily join/leave counts from user events."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id}
-    date_filter = "AND date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT
-            DATE(date AT TIME ZONE 'UTC') AS day,
-            COUNT(*) FILTER (WHERE event = 'joined') AS joined,
-            COUNT(*) FILTER (WHERE event = 'left') AS left_count
-        FROM stats_user_events
-        WHERE chat_id = :chat_id {date_filter}
-        GROUP BY day ORDER BY day
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_MEMBER_EVENTS),
+        date_params(since, chat_id=chat_id),
+    )).fetchall()
     return [{"date": str(row.day), "joined": int(row.joined), "left": int(row.left_count)} for row in rows]
 
 
@@ -614,33 +470,10 @@ async def stats_avg_message_length(
     """Average text length per user (top N by message count)."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id, "limit": limit}
-    date_filter = "AND m.date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT
-            m.from_user AS user_id,
-            COALESCE(un.display_name, u.first_name) AS display_name,
-            COALESCE(un.username, u.username) AS username,
-            COUNT(*) AS total,
-            ROUND(AVG(LENGTH(COALESCE(m.text, m.caption, '')))) AS avg_len,
-            MAX(LENGTH(COALESCE(m.text, m.caption, ''))) AS max_len
-        FROM stats_messages m
-        LEFT JOIN LATERAL (
-            SELECT username, display_name FROM stats_user_names
-            WHERE user_id = m.from_user ORDER BY date DESC LIMIT 1
-        ) un ON TRUE
-        LEFT JOIN users u ON u.id = m.from_user
-        WHERE m.chat_id = :chat_id AND m.from_user IS NOT NULL
-          AND COALESCE(m.text, m.caption) IS NOT NULL
-          {date_filter}
-        GROUP BY m.from_user, un.display_name, un.username, u.first_name, u.username
-        ORDER BY total DESC
-        LIMIT :limit
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_AVG_MSG_LEN),
+        date_params(since, chat_id=chat_id, limit=limit),
+    )).fetchall()
     return [
         {
             "user_id": row.user_id, "display_name": row.display_name, "username": row.username,
@@ -662,62 +495,12 @@ async def stats_response_time(
     """Median and average response time, plus per-user breakdown."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id, "limit": limit}
-    date_filter = "AND r.date >= :since" if since else ""
-    if since:
-        params["since"] = since
+    params = date_params(since, chat_id=chat_id, limit=limit)
 
-    rows = (await session.execute(text(f"""
-        WITH replies AS (
-            SELECT
-                r.from_user,
-                EXTRACT(EPOCH FROM (r.date - o.date)) AS delay_sec
-            FROM stats_messages r
-            JOIN stats_messages o
-                ON o.chat_id = r.chat_id AND o.message_id = r.reply_to_message
-            WHERE r.chat_id = :chat_id
-              AND r.reply_to_message IS NOT NULL
-              AND r.from_user IS NOT NULL
-              AND r.from_user != o.from_user
-              AND EXTRACT(EPOCH FROM (r.date - o.date)) BETWEEN 1 AND 86400
-              {date_filter}
-        )
-        SELECT
-            rp.from_user AS user_id,
-            COALESCE(un.display_name, u.first_name) AS display_name,
-            COALESCE(un.username, u.username) AS username,
-            COUNT(*) AS reply_count,
-            ROUND(AVG(rp.delay_sec)) AS avg_sec,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY rp.delay_sec) AS median_sec
-        FROM replies rp
-        LEFT JOIN LATERAL (
-            SELECT username, display_name FROM stats_user_names
-            WHERE user_id = rp.from_user ORDER BY date DESC LIMIT 1
-        ) un ON TRUE
-        LEFT JOIN users u ON u.id = rp.from_user
-        GROUP BY rp.from_user, un.display_name, un.username, u.first_name, u.username
-        ORDER BY reply_count DESC
-        LIMIT :limit
-    """), params)).fetchall()
-
-    overall = (await session.execute(text(f"""
-        SELECT
-            ROUND(AVG(delay)) AS avg_sec,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delay) AS median_sec,
-            COUNT(*) AS total_replies
-        FROM (
-            SELECT EXTRACT(EPOCH FROM (r.date - o.date)) AS delay
-            FROM stats_messages r
-            JOIN stats_messages o
-                ON o.chat_id = r.chat_id AND o.message_id = r.reply_to_message
-            WHERE r.chat_id = :chat_id
-              AND r.reply_to_message IS NOT NULL
-              AND r.from_user IS NOT NULL
-              AND r.from_user != COALESCE(o.from_user, 0)
-              AND EXTRACT(EPOCH FROM (r.date - o.date)) BETWEEN 1 AND 86400
-              {"AND r.date >= :since" if since else ""}
-        ) sub
-    """), {"chat_id": chat_id, **({"since": since} if since else {})})).fetchone()
+    rows = (await session.execute(text(_SQL_RESP_TIME_USERS), params)).fetchall()
+    overall = (await session.execute(
+        text(_SQL_RESP_TIME_OVERALL), date_params(since, chat_id=chat_id),
+    )).fetchone()
 
     def fmt(sec: float | None) -> str:
         if sec is None:
@@ -754,22 +537,10 @@ async def stats_media_trend(
     """Monthly breakdown of text vs media messages."""
     await _check_group_access(chat_id, session, current_user, request)
     since = _since_param(days)
-    params: dict = {"chat_id": chat_id}
-    date_filter = "AND date >= :since" if since else ""
-    if since:
-        params["since"] = since
-
-    rows = (await session.execute(text(f"""
-        SELECT
-            TO_CHAR(date AT TIME ZONE 'UTC', 'YYYY-MM') AS month,
-            COUNT(*) FILTER (WHERE msg_type = 'text') AS text_count,
-            COUNT(*) FILTER (WHERE msg_type != 'text') AS media_count,
-            COUNT(*) AS total
-        FROM stats_messages
-        WHERE chat_id = :chat_id AND from_user IS NOT NULL {date_filter}
-        GROUP BY month ORDER BY month
-    """), params)).fetchall()
-
+    rows = (await session.execute(
+        text(_SQL_MEDIA_TREND),
+        date_params(since, chat_id=chat_id),
+    )).fetchall()
     return [
         {
             "month": row.month,
@@ -792,38 +563,10 @@ async def stats_top_reactions(
 ) -> dict:
     """Top users by reactions given, and most-used emoji in the chat."""
     since = _since_param(days)
-    date_filter = "AND r.date >= :since" if since else ""
-    params: dict = {"chat_id": chat_id, "limit": limit}
-    if since:
-        params["since"] = since
+    params = date_params(since, chat_id=chat_id, limit=limit)
 
-    top_givers = (await session.execute(text(f"""
-        SELECT
-            r.user_id,
-            COALESCE(un.display_name, u.first_name) AS display_name,
-            COALESCE(un.username, u.username)        AS username,
-            u.photo_url,
-            COUNT(*) AS reaction_count
-        FROM stats_reactions r
-        LEFT JOIN users u ON u.id = r.user_id
-        LEFT JOIN LATERAL (
-            SELECT username, display_name FROM stats_user_names
-            WHERE user_id = r.user_id ORDER BY date DESC LIMIT 1
-        ) un ON true
-        WHERE r.chat_id = :chat_id {date_filter}
-        GROUP BY r.user_id, u.first_name, u.username, u.photo_url, un.username, un.display_name
-        ORDER BY reaction_count DESC
-        LIMIT :limit
-    """), params)).fetchall()
-
-    top_emoji = (await session.execute(text(f"""
-        SELECT reaction_key, reaction_type, COUNT(*) AS cnt
-        FROM stats_reactions r
-        WHERE chat_id = :chat_id AND reaction_type IN ('emoji', 'custom_emoji') {date_filter}
-        GROUP BY reaction_key, reaction_type
-        ORDER BY cnt DESC
-        LIMIT :limit
-    """), params)).fetchall()
+    top_givers = (await session.execute(text(_SQL_TOP_GIVERS), params)).fetchall()
+    top_emoji = (await session.execute(text(_SQL_TOP_EMOJI), params)).fetchall()
 
     return {
         "top_givers": [
