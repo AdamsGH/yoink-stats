@@ -1072,11 +1072,13 @@ _MEMBERS_SQL = """
         SELECT COUNT(*) AS message_count, MIN(date) AS first_seen_at, MAX(date) AS last_message_at
         FROM stats_messages
         WHERE chat_id = :chat_id AND from_user = all_users.user_id
+          AND (CAST(:since AS timestamptz) IS NULL OR date >= CAST(:since AS timestamptz))
     ) msg ON true
     LEFT JOIN LATERAL (
         SELECT COUNT(*) AS reaction_count, MAX(date) AS last_reaction_at
         FROM stats_reactions
         WHERE chat_id = :chat_id AND user_id = all_users.user_id
+          AND (CAST(:since AS timestamptz) IS NULL OR date >= CAST(:since AS timestamptz))
     ) r ON true
     LEFT JOIN stats_group_members gm
         ON gm.chat_id = :chat_id AND gm.user_id = all_users.user_id
@@ -1108,16 +1110,18 @@ def _member_row_to_dict(row: object, cutoff: datetime) -> dict:
 @router.get("/members", summary="Chat member activity list (admin only)")
 async def stats_members(
     chat_id: ChatIdQuery,
+    days: DaysQuery = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.admin)),
 ) -> list[dict]:
     """
     Returns all known users for this chat - message senders UNION synced members.
     in_chat reflects last sync result (null if never synced).
-    Active = last activity (message or reaction) within 90 days.
+    Optional days window filters message_count, reaction_count and last_active_at.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-    rows = (await session.execute(text(_MEMBERS_SQL), {"chat_id": chat_id})).fetchall()
+    since = _since_param(days)
+    cutoff = since or (datetime.now(timezone.utc) - timedelta(days=90))
+    rows = (await session.execute(text(_MEMBERS_SQL), {"chat_id": chat_id, "since": since})).fetchall()
     return [_member_row_to_dict(row, cutoff) for row in rows]
 
 

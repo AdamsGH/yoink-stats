@@ -325,16 +325,9 @@ function MembersTab({
   const hasChatInfo = (members ?? []).some((m) => m.in_chat === true || m.in_chat === false)
 
   const filtered = useMemo(() => {
-    const cutoffMs = period > 0 ? Date.now() - period * 86400_000 : null
-    const isActiveInPeriod = (m: Member) => {
-      if (!cutoffMs) return true
-      if (!m.last_active_at) return false
-      return new Date(m.last_active_at).getTime() >= cutoffMs
-    }
-
     const list = (members ?? []).filter((m) => {
-      if (filter === 'active' && !isActiveInPeriod(m)) return false
-      if (filter === 'inactive' && isActiveInPeriod(m)) return false
+      if (filter === 'active' && !m.is_active) return false
+      if (filter === 'inactive' && m.is_active) return false
       if (chatFilter === 'in_chat' && m.in_chat !== true) return false
       if (chatFilter === 'left' && m.in_chat !== false) return false
       if (!search) return true
@@ -584,14 +577,16 @@ export default function StatsGroupPage() {
   }, [numericChatId, period])
 
   useEffect(() => {
-    if (!isAdmin || !numericChatId || membersLoaded.current) return
+    if (!isAdmin || !numericChatId) return
     membersLoaded.current = true
     setMembersLoading(true)
-    apiClient.get<Member[]>('/stats/members', { params: { chat_id: numericChatId } })
+    const params: Record<string, unknown> = { chat_id: numericChatId }
+    if (period > 0) params.days = period
+    apiClient.get<Member[]>('/stats/members', { params })
       .then((r) => setMembers(r.data))
       .catch(() => setMembers([]))
       .finally(() => setMembersLoading(false))
-  }, [isAdmin, numericChatId])
+  }, [isAdmin, numericChatId, period])
 
   useEffect(() => {
     if (!isAdmin || sessionChecked.current) return
