@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { useGetIdentity } from '@refinedev/core'
@@ -22,7 +22,7 @@ import {
   YAxis,
 } from 'recharts'
 
-import { ArrowLeft, Calendar, Clock, Download, MessageSquare, RefreshCw, Search, Type, Users as UsersIcon } from 'lucide-react'
+import { ArrowLeft, ArrowDownAZ, ArrowUpAZ, Calendar, Clock, Download, MessageSquare, RefreshCw, Search, Type, Users as UsersIcon } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
 import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
@@ -30,6 +30,7 @@ import { Badge } from '@core/components/ui/badge'
 import { Button } from '@core/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
 import { Drawer, DrawerContent } from '@core/components/ui/drawer'
+import { InlineSelect } from '@core/components/app/InlineSelect'
 import { Input } from '@core/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@core/components/ui/item'
 import { Skeleton } from '@core/components/ui/skeleton'
@@ -274,59 +275,65 @@ function MemberDrawer({ member, chatId, onClose }: { member: Member | null; chat
   )
 }
 
-function MembersTab({ chatId }: { chatId: number }) {
-  const [members, setMembers] = useState<Member[] | null>(null)
-  const [loading, setLoading] = useState(false)
+function MembersTab({
+  chatId,
+  members,
+  loading,
+  onLoad,
+  sessionAvailable,
+}: {
+  chatId: number
+  members: Member[] | null
+  loading: boolean
+  onLoad: (members: Member[]) => void
+  sessionAvailable: boolean
+}) {
   const [syncing, setSyncing] = useState(false)
-  const [sessionAvailable, setSessionAvailable] = useState(false)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [chatFilter, setChatFilter] = useState<'any' | 'in_chat' | 'left'>('any')
+  const [sortBy, setSortBy] = useState<'last_active' | 'messages' | 'reactions' | 'name' | 'joined'>('last_active')
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
   const [selected, setSelected] = useState<Member | null>(null)
-  const loaded = useRef(false)
-  const sessionChecked = useRef(false)
-
-  useEffect(() => {
-    if (loaded.current) return
-    loaded.current = true
-    setLoading(true)
-    apiClient.get<Member[]>('/stats/members', { params: { chat_id: chatId } })
-      .then((r) => setMembers(r.data))
-      .catch(() => setMembers([]))
-      .finally(() => setLoading(false))
-  }, [chatId])
-
-  useEffect(() => {
-    if (sessionChecked.current) return
-    sessionChecked.current = true
-    apiClient.get<{ available: boolean }>('/threads/status')
-      .then((r) => setSessionAvailable(r.data.available))
-      .catch(() => setSessionAvailable(false))
-  }, [])
 
   function handleSync() {
     setSyncing(true)
     apiClient.post<Member[]>('/stats/members/sync', null, { params: { chat_id: chatId } })
-      .then((r) => setMembers(r.data))
+      .then((r) => onLoad(r.data))
       .catch(() => toast.error('Sync failed'))
       .finally(() => setSyncing(false))
   }
 
   const hasChatInfo = (members ?? []).some((m) => m.in_chat === true || m.in_chat === false)
 
-  const filtered = (members ?? []).filter((m) => {
-    if (filter === 'active' && !m.is_active) return false
-    if (filter === 'inactive' && m.is_active) return false
-    if (chatFilter === 'in_chat' && m.in_chat !== true) return false
-    if (chatFilter === 'left' && m.in_chat !== false) return false
-    if (!search) return true
-    const q = search.toLowerCase()
-    return (
-      (m.display_name ?? '').toLowerCase().includes(q) ||
-      (m.username ?? '').toLowerCase().includes(q) ||
-      String(m.user_id).includes(q)
-    )
-  })
+  const filtered = useMemo(() => {
+    const list = (members ?? []).filter((m) => {
+      if (filter === 'active' && !m.is_active) return false
+      if (filter === 'inactive' && m.is_active) return false
+      if (chatFilter === 'in_chat' && m.in_chat !== true) return false
+      if (chatFilter === 'left' && m.in_chat !== false) return false
+      if (!search) return true
+      const q = search.toLowerCase()
+      return (
+        (m.display_name ?? '').toLowerCase().includes(q) ||
+        (m.username ?? '').toLowerCase().includes(q) ||
+        String(m.user_id).includes(q)
+      )
+    })
+
+    const dir = sortDir === 'desc' ? -1 : 1
+    list.sort((a, b) => {
+      switch (sortBy) {
+        case 'messages':   return dir * (a.message_count - b.message_count)
+        case 'reactions':  return dir * (a.reaction_count - b.reaction_count)
+        case 'name':       return dir * (memberLabel(a).localeCompare(memberLabel(b)))
+        case 'joined':     return dir * ((a.first_seen_at ?? '').localeCompare(b.first_seen_at ?? ''))
+        case 'last_active':
+        default:           return dir * ((a.last_active_at ?? '').localeCompare(b.last_active_at ?? ''))
+      }
+    })
+    return list
+  }, [members, filter, chatFilter, search, sortBy, sortDir])
 
   return (
     <>
@@ -350,7 +357,7 @@ function MembersTab({ chatId }: { chatId: number }) {
             )}
           </div>
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <div className="flex rounded-md border text-xs">
                 {(['all', 'active', 'inactive'] as const).map((f) => (
                   <button
@@ -376,12 +383,35 @@ function MembersTab({ chatId }: { chatId: number }) {
                 </div>
               )}
             </div>
-            {members && (
-              <p className="text-xs text-muted-foreground shrink-0">
-                {filtered.length} / {members.length}
-                {!sessionAvailable && <span className="ml-1 opacity-60">· senders only</span>}
-              </p>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <InlineSelect
+                options={[
+                  { value: 'last_active', label: 'Last active' },
+                  { value: 'messages',    label: 'Messages' },
+                  { value: 'reactions',   label: 'Reactions' },
+                  { value: 'name',        label: 'Name' },
+                  { value: 'joined',      label: 'First seen' },
+                ]}
+                value={sortBy}
+                onValueChange={(v) => setSortBy(v as typeof sortBy)}
+                className="h-7 text-xs w-32"
+              />
+              <button
+                onClick={() => setSortDir((d) => d === 'desc' ? 'asc' : 'desc')}
+                className="h-7 w-7 flex items-center justify-center rounded-md border hover:bg-muted/50 transition-colors"
+                title={sortDir === 'desc' ? 'Descending' : 'Ascending'}
+              >
+                {sortDir === 'desc'
+                  ? <ArrowDownAZ className="h-3.5 w-3.5" />
+                  : <ArrowUpAZ className="h-3.5 w-3.5" />}
+              </button>
+              {members && (
+                <p className="text-xs text-muted-foreground pl-1">
+                  {filtered.length}/{members.length}
+                  {!sessionAvailable && <span className="ml-1 opacity-60">·&nbsp;senders</span>}
+                </p>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="px-2 py-0 pb-2">
@@ -448,6 +478,11 @@ export default function StatsGroupPage() {
   const [periodData, setPeriodData] = useState<PeriodData | null>(null)
   const [loading, setLoading] = useState(true)
   const [periodLoading, setPeriodLoading] = useState(false)
+  const [members, setMembers] = useState<Member[] | null>(null)
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [sessionAvailable, setSessionAvailable] = useState(false)
+  const membersLoaded = useRef(false)
+  const sessionChecked = useRef(false)
   const [period, setPeriodState] = useState<Period>([7, 30, 90, 0].includes(savedPeriod) ? savedPeriod : 30)
   const setPeriod = (v: Period) => {
     setPeriodState(v)
@@ -515,6 +550,24 @@ export default function StatsGroupPage() {
       .catch(() => toast.error('Failed to load period stats'))
       .finally(() => setPeriodLoading(false))
   }, [numericChatId, period])
+
+  useEffect(() => {
+    if (!isAdmin || !numericChatId || membersLoaded.current) return
+    membersLoaded.current = true
+    setMembersLoading(true)
+    apiClient.get<Member[]>('/stats/members', { params: { chat_id: numericChatId } })
+      .then((r) => setMembers(r.data))
+      .catch(() => setMembers([]))
+      .finally(() => setMembersLoading(false))
+  }, [isAdmin, numericChatId])
+
+  useEffect(() => {
+    if (!isAdmin || sessionChecked.current) return
+    sessionChecked.current = true
+    apiClient.get<{ available: boolean }>('/threads/status')
+      .then((r) => setSessionAvailable(r.data.available))
+      .catch(() => setSessionAvailable(false))
+  }, [isAdmin])
 
   const hourData = Array.from({ length: 24 }, (_, h) => {
     const found = data?.byHour.find((x) => x.hour === h)
@@ -1003,7 +1056,13 @@ export default function StatsGroupPage() {
 
         {isAdmin && (
           <TabsContent value="members" className="mt-4">
-            <MembersTab chatId={numericChatId} />
+            <MembersTab
+              chatId={numericChatId}
+              members={members}
+              loading={membersLoading}
+              onLoad={setMembers}
+              sessionAvailable={sessionAvailable}
+            />
           </TabsContent>
         )}
         <TabsContent value="import" className="mt-4">

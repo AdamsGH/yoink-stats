@@ -20,8 +20,8 @@ class StatsPlugin:
         return StatsConfig
 
     def get_models(self) -> list:
-        from yoink_stats.storage.models import ChatMessage, Reaction, UserEvent, UserNameHistory
-        return [ChatMessage, Reaction, UserEvent, UserNameHistory]
+        from yoink_stats.storage.models import ChatMessage, GroupMember, Reaction, UserEvent, UserNameHistory
+        return [ChatMessage, GroupMember, Reaction, UserEvent, UserNameHistory]
 
     def get_features(self) -> list:
         from yoink.core.plugin import FeatureSpec

@@ -1039,6 +1039,72 @@ async def stats_top_reactions(
     }
 
 
+_MEMBERS_SQL = """
+    SELECT
+        all_users.user_id,
+        COALESCE(un.display_name, u.first_name)           AS display_name,
+        COALESCE(un.username, u.username)                  AS username,
+        u.photo_url,
+        COALESCE(msg.message_count, 0)                     AS message_count,
+        COALESCE(r.reaction_count, 0)                      AS reaction_count,
+        msg.first_seen_at,
+        GREATEST(
+            COALESCE(msg.last_message_at, 'epoch'::timestamptz),
+            COALESCE(r.last_reaction_at,  'epoch'::timestamptz)
+        )                                                  AS last_active_at,
+        gm.in_chat,
+        gm.synced_at
+    FROM (
+        SELECT DISTINCT from_user AS user_id
+        FROM stats_messages
+        WHERE chat_id = :chat_id AND from_user IS NOT NULL
+        UNION
+        SELECT DISTINCT user_id
+        FROM stats_group_members
+        WHERE chat_id = :chat_id
+    ) all_users
+    LEFT JOIN users u ON u.id = all_users.user_id
+    LEFT JOIN LATERAL (
+        SELECT username, display_name FROM stats_user_names
+        WHERE user_id = all_users.user_id ORDER BY date DESC LIMIT 1
+    ) un ON true
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS message_count, MIN(date) AS first_seen_at, MAX(date) AS last_message_at
+        FROM stats_messages
+        WHERE chat_id = :chat_id AND from_user = all_users.user_id
+    ) msg ON true
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS reaction_count, MAX(date) AS last_reaction_at
+        FROM stats_reactions
+        WHERE chat_id = :chat_id AND user_id = all_users.user_id
+    ) r ON true
+    LEFT JOIN stats_group_members gm
+        ON gm.chat_id = :chat_id AND gm.user_id = all_users.user_id
+    ORDER BY last_active_at DESC
+    LIMIT 1000
+"""
+
+
+def _member_row_to_dict(row: object, cutoff: datetime) -> dict:
+    last_active_at = getattr(row, "last_active_at", None)
+    # epoch sentinel means no real activity
+    if last_active_at and last_active_at.year <= 1970:
+        last_active_at = None
+    return {
+        "user_id": row.user_id,
+        "display_name": row.display_name,
+        "username": row.username,
+        "has_photo": row.photo_url is not None,
+        "message_count": row.message_count,
+        "reaction_count": row.reaction_count,
+        "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
+        "last_active_at": last_active_at.isoformat() if last_active_at else None,
+        "is_active": bool(last_active_at and last_active_at > cutoff),
+        "in_chat": row.in_chat,
+        "synced_at": row.synced_at.isoformat() if row.synced_at else None,
+    }
+
+
 @router.get("/members", summary="Chat member activity list (admin only)")
 async def stats_members(
     chat_id: ChatIdQuery,
@@ -1046,63 +1112,16 @@ async def stats_members(
     current_user: User = Depends(require_role(UserRole.admin)),
 ) -> list[dict]:
     """
-    Returns all users who have ever sent a message in the chat, with activity
-    metrics derived from stats_messages and stats_reactions.
-    Active = last activity within 90 days.
+    Returns all known users for this chat - message senders UNION synced members.
+    in_chat reflects last sync result (null if never synced).
+    Active = last activity (message or reaction) within 90 days.
     """
-    from datetime import timedelta
-    rows = (await session.execute(text("""
-        SELECT
-            m.from_user AS user_id,
-            COALESCE(un.display_name, u.first_name)          AS display_name,
-            COALESCE(un.username, u.username)                 AS username,
-            u.photo_url,
-            COUNT(DISTINCT m.id)                              AS message_count,
-            COALESCE(r.reaction_count, 0)                     AS reaction_count,
-            MIN(m.date)                                       AS first_seen_at,
-            MAX(m.date)                                       AS last_message_at,
-            COALESCE(r.last_reaction_at, 'epoch'::timestamptz) AS last_reaction_at,
-            GREATEST(MAX(m.date), COALESCE(r.last_reaction_at, 'epoch'::timestamptz)) AS last_active_at
-        FROM stats_messages m
-        LEFT JOIN users u ON u.id = m.from_user
-        LEFT JOIN LATERAL (
-            SELECT username, display_name
-            FROM stats_user_names
-            WHERE user_id = m.from_user
-            ORDER BY date DESC
-            LIMIT 1
-        ) un ON true
-        LEFT JOIN LATERAL (
-            SELECT COUNT(*) AS reaction_count, MAX(date) AS last_reaction_at
-            FROM stats_reactions
-            WHERE user_id = m.from_user AND chat_id = :chat_id
-        ) r ON true
-        WHERE m.chat_id = :chat_id AND m.from_user IS NOT NULL
-        GROUP BY m.from_user, u.first_name, u.username, u.photo_url,
-                 un.username, un.display_name, r.reaction_count, r.last_reaction_at
-        ORDER BY last_active_at DESC
-        LIMIT 500
-    """), {"chat_id": chat_id})).fetchall()
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-    return [
-        {
-            "user_id": row.user_id,
-            "display_name": row.display_name,
-            "username": row.username,
-            "has_photo": row.photo_url is not None,
-            "message_count": row.message_count,
-            "reaction_count": row.reaction_count,
-            "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
-            "last_active_at": row.last_active_at.isoformat() if row.last_active_at else None,
-            "is_active": bool(row.last_active_at and row.last_active_at > cutoff),
-            "in_chat": None,
-        }
-        for row in rows
-    ]
+    rows = (await session.execute(text(_MEMBERS_SQL), {"chat_id": chat_id})).fetchall()
+    return [_member_row_to_dict(row, cutoff) for row in rows]
 
 
-@router.post("/members/sync", summary="Fetch full member list via user-mode session (admin+)")
+@router.post("/members/sync", summary="Sync member list via user-mode session (admin+)")
 async def stats_members_sync(
     chat_id: ChatIdQuery,
     request: Request,
@@ -1110,12 +1129,13 @@ async def stats_members_sync(
     current_user: User = Depends(require_role(UserRole.admin)),
 ) -> list[dict]:
     """
-    Fetches all chat members via user-mode session (getChatMembers) and merges
-    them with local stats data. Returns the same shape as GET /stats/members
-    but includes users who never sent a message (member_count=0).
-    Requires user-mode session to be available.
+    Fetches all chat members via getChatMembers, writes to stats_group_members,
+    marks missing users as in_chat=false, then returns merged member list.
     """
     from yoink.core.services.user_session import UserSessionError, UserSessionService
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from yoink_stats.storage.models import GroupMember
+
     svc: UserSessionService | None = None
     if hasattr(request.app.state, "bot_data"):
         svc = request.app.state.bot_data.get("user_session")
@@ -1126,7 +1146,6 @@ async def stats_members_sync(
         )
 
     # Fetch all members page by page
-    # Response is a plain list: [{user: {id, ...}, status, joined_date}, ...]
     all_members: list[dict] = []
     offset = 0
     limit = 200
@@ -1136,107 +1155,57 @@ async def stats_members_sync(
         except UserSessionError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         if not isinstance(batch, list):
-            batch = []
+            break
         all_members.extend(batch)
         if len(batch) < limit:
             break
         offset += limit
 
-    # Build user_id -> member info map (uid from member["user"]["id"])
-    member_map: dict[int, dict] = {}
+    now = datetime.now(timezone.utc)
+    live_uids: set[int] = set()
+
     for m in all_members:
         user_obj = m.get("user") or {}
         uid = user_obj.get("id")
-        if uid:
-            member_map[uid] = m
+        if not uid:
+            continue
+        live_uids.add(uid)
 
-    # Load stats for all known users in this chat
-    stats_rows = (await session.execute(text("""
-        SELECT
-            m.from_user AS user_id,
-            COALESCE(un.display_name, u.first_name)           AS display_name,
-            COALESCE(un.username, u.username)                  AS username,
-            u.photo_url,
-            COUNT(DISTINCT m.id)                               AS message_count,
-            COALESCE(r.reaction_count, 0)                      AS reaction_count,
-            MIN(m.date)                                        AS first_seen_at,
-            MAX(m.date)                                        AS last_message_at,
-            COALESCE(r.last_reaction_at, 'epoch'::timestamptz) AS last_reaction_at,
-            GREATEST(MAX(m.date), COALESCE(r.last_reaction_at, 'epoch'::timestamptz)) AS last_active_at
-        FROM stats_messages m
-        LEFT JOIN users u ON u.id = m.from_user
-        LEFT JOIN LATERAL (
-            SELECT username, display_name FROM stats_user_names
-            WHERE user_id = m.from_user ORDER BY date DESC LIMIT 1
-        ) un ON true
-        LEFT JOIN LATERAL (
-            SELECT COUNT(*) AS reaction_count, MAX(date) AS last_reaction_at
-            FROM stats_reactions
-            WHERE user_id = m.from_user AND chat_id = :chat_id
-        ) r ON true
-        WHERE m.chat_id = :chat_id AND m.from_user IS NOT NULL
-        GROUP BY m.from_user, u.first_name, u.username, u.photo_url,
-                 un.username, un.display_name, r.reaction_count, r.last_reaction_at
-    """), {"chat_id": chat_id})).fetchall()
+        joined_ts = m.get("joined_date")
+        joined_dt = datetime.fromtimestamp(joined_ts, tz=timezone.utc) if joined_ts else None
 
-    stats_by_uid = {row.user_id: row for row in stats_rows}
+        stmt = (
+            pg_insert(GroupMember)
+            .values(
+                chat_id=chat_id,
+                user_id=uid,
+                in_chat=True,
+                status=m.get("status"),
+                joined_date=joined_dt,
+                synced_at=now,
+            )
+            .on_conflict_do_update(
+                constraint="uq_sgm_chat_user",
+                set_={"in_chat": True, "status": m.get("status"), "joined_date": joined_dt, "synced_at": now},
+            )
+        )
+        await session.execute(stmt)
+
+    # Mark everyone NOT in the live list as left
+    # Use raw connection to pass bigint array natively via asyncpg
+    if live_uids:
+        raw = await session.connection()
+        await raw.exec_driver_sql(
+            "UPDATE stats_group_members SET in_chat = false, synced_at = $1 "
+            "WHERE chat_id = $2 AND user_id != ALL($3)",
+            (now, chat_id, list(live_uids)),
+        )
+
+    await session.commit()
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-
-    result_list: list[dict] = []
-
-    # Members from session - merge with stats
-    for uid, member in member_map.items():
-        row = stats_by_uid.get(uid)
-        if row:
-            result_list.append({
-                "user_id": uid,
-                "display_name": row.display_name,
-                "username": row.username,
-                "has_photo": row.photo_url is not None,
-                "message_count": row.message_count,
-                "reaction_count": row.reaction_count,
-                "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
-                "last_active_at": row.last_active_at.isoformat() if row.last_active_at else None,
-                "is_active": bool(row.last_active_at and row.last_active_at > cutoff),
-                "in_chat": True,
-            })
-        else:
-            # Member present in chat but no messages recorded — use data from session
-            user_obj = m.get("user") or {}
-            first = user_obj.get("first_name", "")
-            last = user_obj.get("last_name", "")
-            display = " ".join(filter(None, [first, last])) or None
-            result_list.append({
-                "user_id": uid,
-                "display_name": display,
-                "username": user_obj.get("username"),
-                "has_photo": False,
-                "message_count": 0,
-                "reaction_count": 0,
-                "first_seen_at": None,
-                "last_active_at": None,
-                "is_active": False,
-                "in_chat": True,
-            })
-
-    # Users with stats but not in member list (left the chat)
-    for uid, row in stats_by_uid.items():
-        if uid not in member_map:
-            result_list.append({
-                "user_id": uid,
-                "display_name": row.display_name,
-                "username": row.username,
-                "has_photo": row.photo_url is not None,
-                "message_count": row.message_count,
-                "reaction_count": row.reaction_count,
-                "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
-                "last_active_at": row.last_active_at.isoformat() if row.last_active_at else None,
-                "is_active": bool(row.last_active_at and row.last_active_at > cutoff),
-                "in_chat": False,
-            })
-
-    result_list.sort(key=lambda x: (not x["is_active"], -(x["message_count"] or 0)))
-    return result_list
+    rows = (await session.execute(text(_MEMBERS_SQL), {"chat_id": chat_id})).fetchall()
+    return [_member_row_to_dict(row, cutoff) for row in rows]
 
 
 @router.post("/import", response_model=ImportStatus, summary="Import Telegram Desktop chat export (result.json)")

@@ -61,6 +61,23 @@ class UserEvent(Base):
     event: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
+class GroupMember(Base):
+    """Known membership state of a user in a group, updated by sync."""
+    __tablename__ = "stats_group_members"
+    __table_args__ = (
+        __import__("sqlalchemy").Index("idx_sgm_chat_user", "chat_id", "user_id"),
+        __import__("sqlalchemy").UniqueConstraint("chat_id", "user_id", name="uq_sgm_chat_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    in_chat: Mapped[bool] = mapped_column(__import__("sqlalchemy").Boolean, nullable=False, default=True)
+    status: Mapped[str | None] = mapped_column(String(32))
+    joined_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+
+
 class Reaction(Base):
     """Per-user reactions on messages in monitored groups."""
     __tablename__ = "stats_reactions"
