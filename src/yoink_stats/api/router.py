@@ -1161,6 +1161,9 @@ async def stats_members_sync(
             break
         offset += limit
 
+    from sqlalchemy.dialects.postgresql import insert as pg_insert_core
+    from yoink_stats.storage.models import UserNameHistory
+
     now = datetime.now(timezone.utc)
     live_uids: set[int] = set()
 
@@ -1170,6 +1173,39 @@ async def stats_members_sync(
         if not uid:
             continue
         live_uids.add(uid)
+
+        first_name: str | None = user_obj.get("first_name") or user_obj.get("firstName")
+        username: str | None = user_obj.get("username")
+        display_name: str | None = (
+            " ".join(filter(None, [first_name, user_obj.get("last_name") or user_obj.get("lastName")])) or None
+        )
+
+        # Upsert into core users table so display_name shows up in _MEMBERS_SQL
+        core_stmt = (
+            pg_insert_core(User)
+            .values(id=uid, first_name=first_name, username=username, role=UserRole.user)
+            .on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "first_name": first_name,
+                    "username": username,
+                },
+            )
+        )
+        await session.execute(core_stmt)
+
+        # Write name history entry (truncated to day to avoid duplicates on re-sync)
+        if display_name or username:
+            day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            name_stmt = (
+                pg_insert_core(UserNameHistory)
+                .values(user_id=uid, date=day, username=username, display_name=display_name)
+                .on_conflict_do_update(
+                    index_elements=["user_id", "date"],
+                    set_={"username": username, "display_name": display_name},
+                )
+            )
+            await session.execute(name_stmt)
 
         joined_ts = m.get("joined_date")
         joined_dt = datetime.fromtimestamp(joined_ts, tz=timezone.utc) if joined_ts else None

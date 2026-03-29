@@ -22,7 +22,7 @@ import {
   YAxis,
 } from 'recharts'
 
-import { ArrowLeft, ArrowDownAZ, ArrowUpAZ, Calendar, Clock, Download, MessageSquare, RefreshCw, Search, Type, Users as UsersIcon } from 'lucide-react'
+import { ArrowLeft, ArrowDownAZ, ArrowUpAZ, Calendar, Clock, Download, ExternalLink, MessageSquare, RefreshCw, Search, Type, Users as UsersIcon } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
 import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
@@ -233,7 +233,18 @@ function MemberDrawer({ member, chatId, onClose }: { member: Member | null; chat
                   <AvatarFallback className="text-lg font-bold">{memberInitials(m)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-base truncate">{memberLabel(m)}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-base truncate">{memberLabel(m)}</p>
+                    <a
+                      href={m.username ? `https://t.me/${m.username}` : `tg://user?id=${m.user_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                      title={m.username ? `@${m.username}` : `tg://user?id=${m.user_id}`}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
                   {m.username && <p className="text-sm text-muted-foreground">@{m.username}</p>}
                   <div className="flex items-center gap-2 mt-1">
                     <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
@@ -251,6 +262,7 @@ function MemberDrawer({ member, chatId, onClose }: { member: Member | null; chat
               ) : (
                 <>
                   {[
+                    ['User ID', String(m.user_id)],
                     ['Messages', m.message_count.toLocaleString()],
                     ['Reactions given', m.reaction_count > 0 ? m.reaction_count.toLocaleString() : '—'],
                     ['Avg / day', stats?.avg_per_day ?? '—'],
