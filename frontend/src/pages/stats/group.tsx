@@ -506,13 +506,20 @@ export default function StatsGroupPage() {
   const [members, setMembers] = useState<Member[] | null>(null)
   const [membersLoading, setMembersLoading] = useState(false)
   const [sessionAvailable, setSessionAvailable] = useState(false)
-  const membersLoaded = useRef(false)
+  const [chatAdmins, setChatAdmins] = useState<{ user_id: number; status: string }[]>([])
   const sessionChecked = useRef(false)
   const [period, setPeriodState] = useState<Period>([7, 30, 90, 0].includes(savedPeriod) ? savedPeriod : 30)
   const setPeriod = (v: Period) => {
     setPeriodState(v)
     localStorage.setItem(PERIOD_KEY, String(v))
   }
+
+  useEffect(() => {
+    if (!numericChatId) return
+    apiClient.get<{ user_id: number; status: string }[]>('/stats/chat-admins', { params: { chat_id: numericChatId } })
+      .then((r) => setChatAdmins(r.data))
+      .catch(() => {})
+  }, [numericChatId])
 
   useEffect(() => {
     if (!numericChatId) return
@@ -576,9 +583,11 @@ export default function StatsGroupPage() {
       .finally(() => setPeriodLoading(false))
   }, [numericChatId, period])
 
+  const isChatAdminResolved = identity !== undefined
   useEffect(() => {
-    if (!isAdmin || !numericChatId) return
-    membersLoaded.current = true
+    if (!isChatAdminResolved || !numericChatId) return
+    const canAccess = isAdmin || chatAdmins.some((a) => a.user_id === Number(identity?.id))
+    if (!canAccess) return
     setMembersLoading(true)
     const params: Record<string, unknown> = { chat_id: numericChatId }
     if (period > 0) params.days = period
@@ -586,7 +595,7 @@ export default function StatsGroupPage() {
       .then((r) => setMembers(r.data))
       .catch(() => setMembers([]))
       .finally(() => setMembersLoading(false))
-  }, [isAdmin, numericChatId, period])
+  }, [isChatAdminResolved, isAdmin, numericChatId, period, chatAdmins])
 
   useEffect(() => {
     if (!isAdmin || sessionChecked.current) return
@@ -595,6 +604,8 @@ export default function StatsGroupPage() {
       .then((r) => setSessionAvailable(r.data.available))
       .catch(() => setSessionAvailable(false))
   }, [isAdmin])
+
+  const isChatAdmin = isAdmin || chatAdmins.some((a) => a.user_id === Number(identity?.id))
 
   const hourData = Array.from({ length: 24 }, (_, h) => {
     const found = data?.byHour.find((x) => x.hour === h)
@@ -694,7 +705,7 @@ export default function StatsGroupPage() {
         <div className="flex items-center justify-between gap-2">
           <TabsList>
             <TabsTrigger value="stats">{t('stats.tab_stats')}</TabsTrigger>
-            {isAdmin && <TabsTrigger value="members">{t('stats.tab_members', { defaultValue: 'Members' })}</TabsTrigger>}
+            {isChatAdmin && <TabsTrigger value="members">{t('stats.tab_members', { defaultValue: 'Members' })}</TabsTrigger>}
             {identity?.role === 'owner' && <TabsTrigger value="import">{t('stats.tab_import')}</TabsTrigger>}
           </TabsList>
           {activeTab !== 'import' && <PeriodToggle value={period} onChange={setPeriod} />}
@@ -1081,14 +1092,14 @@ export default function StatsGroupPage() {
           )}
         </TabsContent>
 
-        {isAdmin && (
+        {isChatAdmin && (
           <TabsContent value="members" className="mt-4">
             <MembersTab
               chatId={numericChatId}
               members={members}
               loading={membersLoading}
               onLoad={setMembers}
-              sessionAvailable={sessionAvailable}
+              sessionAvailable={sessionAvailable && isAdmin}
               period={period}
             />
           </TabsContent>

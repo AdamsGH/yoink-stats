@@ -14,8 +14,10 @@ from telegram import ChatMemberLeft, ChatMemberBanned
 from telegram.error import TelegramError
 
 from yoink.core.api.deps import get_db
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from yoink.core.auth.rbac import require_role, role_gte
 from yoink.core.db.models import Group, User, UserGroupPolicy, UserRole
+from yoink_stats.storage.models import ChatAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -1107,18 +1109,74 @@ def _member_row_to_dict(row: object, cutoff: datetime) -> dict:
     }
 
 
-@router.get("/members", summary="Chat member activity list (admin only)")
+async def _sync_chat_admins(bot, chat_id: int, session: AsyncSession) -> None:
+    """Fetch getChatAdministrators and upsert into stats_chat_admins."""
+    try:
+        admins = await bot.get_chat_administrators(chat_id=chat_id)
+        now = datetime.now(timezone.utc)
+        synced_ids: list[int] = []
+        for member in admins:
+            if member.user.is_bot:
+                continue
+            stmt = pg_insert(ChatAdmin).values(
+                user_id=member.user.id,
+                chat_id=chat_id,
+                status=member.status,
+                synced_at=now,
+            ).on_conflict_do_update(
+                index_elements=["user_id", "chat_id"],
+                set_={"status": member.status, "synced_at": now},
+            )
+            await session.execute(stmt)
+            synced_ids.append(member.user.id)
+        if synced_ids:
+            await session.execute(
+                text("DELETE FROM stats_chat_admins WHERE chat_id = :chat_id AND user_id NOT IN :ids")
+                .bindparams(chat_id=chat_id, ids=tuple(synced_ids))
+            )
+        await session.commit()
+    except Exception:
+        logger.exception("Failed to sync chat admins for chat_id=%s", chat_id)
+
+
+async def _is_chat_admin_db(user_id: int, chat_id: int, session: AsyncSession) -> bool:
+    row = await session.get(ChatAdmin, (user_id, chat_id))
+    return row is not None
+
+
+@router.get("/chat-admins", summary="List known chat admins (any authenticated user)")
+async def stats_chat_admins(
+    chat_id: ChatIdQuery,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+) -> list[dict]:
+    rows = (await session.execute(
+        select(ChatAdmin).where(ChatAdmin.chat_id == chat_id)
+    )).scalars().all()
+    return [{"user_id": r.user_id, "status": r.status} for r in rows]
+
+
+@router.get("/members", summary="Chat member activity list (chat admin or bot admin)")
 async def stats_members(
     chat_id: ChatIdQuery,
     days: DaysQuery = None,
+    request: Request = None,
+    background_tasks: BackgroundTasks = None,
     session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.admin)),
+    current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:
     """
     Returns all known users for this chat - message senders UNION synced members.
-    in_chat reflects last sync result (null if never synced).
+    Accessible to bot admins or users who are chat admins (checked via stats_chat_admins).
     Optional days window filters message_count, reaction_count and last_active_at.
     """
+    if not role_gte(current_user.role, UserRole.admin):
+        if not await _is_chat_admin_db(current_user.id, chat_id, session):
+            raise HTTPException(status_code=403, detail="Not a chat admin")
+        bot = getattr(getattr(request, "app", None), "state", None)
+        bot = getattr(bot, "bot", None) if bot else None
+        if bot and background_tasks is not None:
+            background_tasks.add_task(_sync_chat_admins, bot, chat_id, session)
     since = _since_param(days)
     cutoff = since or (datetime.now(timezone.utc) - timedelta(days=90))
     rows = (await session.execute(text(_MEMBERS_SQL), {"chat_id": chat_id, "since": since})).fetchall()

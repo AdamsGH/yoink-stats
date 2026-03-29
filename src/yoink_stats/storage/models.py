@@ -96,6 +96,16 @@ class Reaction(Base):
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
 
+class ChatAdmin(Base):
+    """Chat admin status, synced via getChatAdministrators."""
+    __tablename__ = "stats_chat_admins"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+
+
 class UserNameHistory(Base):
     """Username/display-name history per user, temporal log."""
     __tablename__ = "stats_user_names"
