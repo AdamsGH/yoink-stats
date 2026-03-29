@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { useGetIdentity } from '@refinedev/core'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@core/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ui'
 import ImportPage from '@stats/pages/import/index'
 import {
   Area,
@@ -28,10 +28,7 @@ import { apiClient } from '@core/lib/api-client'
 import { formatDateMonth } from '@core/lib/utils'
 import { userInitials, userPhotoUrl } from '@core/lib/user-utils'
 import type { DrawerUser } from '@stats/types'
-import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
-import { Button } from '@core/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
-import { Skeleton } from '@core/components/ui/skeleton'
+import { Avatar, AvatarFallback, AvatarImage, Button, Card, CardContent, CardHeader, CardTitle, Skeleton } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import { chartColors, PeriodToggle, StatCard, StatCardSkeleton } from '@core/components/charts'
 import type { Period } from '@core/components/charts'
@@ -154,8 +151,7 @@ function RankedList<T extends object>({ items, labelKey, valueKey, limit = 10 }:
 }
 
 
-import { UserStatsDrawer } from './components/UserStatsDrawer'
-import { MembersTab } from './components/MembersTab'
+import { MembersTab, UserStatsDrawer } from './components'
 
 export default function StatsGroupPage() {
   const { t } = useTranslation()

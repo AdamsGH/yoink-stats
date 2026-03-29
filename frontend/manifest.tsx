@@ -2,10 +2,10 @@ import { BarChart2, User } from 'lucide-react'
 
 import type { PluginManifest } from '@core/types/plugin'
 
-import StatsIndexPage  from './src/pages/stats/index'
-import StatsGroupPage  from './src/pages/stats/group'
-import StatsUserPage   from './src/pages/stats/user'
-import StatsMePage     from './src/pages/stats/me'
+import StatsIndexPage  from './src/pages/stats/IndexPage'
+import StatsGroupPage  from './src/pages/stats/GroupPage'
+import StatsUserPage   from './src/pages/stats/UserPage'
+import StatsMePage     from './src/pages/stats/MePage'
 import ImportPage      from './src/pages/import/index'
 
 export const statsPlugin: PluginManifest = {

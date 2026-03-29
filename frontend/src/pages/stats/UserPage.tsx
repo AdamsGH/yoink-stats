@@ -5,9 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { apiClient } from '@core/lib/api-client'
 import { formatDateDay } from '@core/lib/utils'
 import type { UserStats } from '@stats/types'
-import { Button } from '@core/components/ui/button'
-import { Card, CardContent } from '@core/components/ui/card'
-import { Skeleton } from '@core/components/ui/skeleton'
+import { Button, Card, CardContent, Skeleton } from '@ui'
 import { toast } from '@core/components/ui/toast'
 
 

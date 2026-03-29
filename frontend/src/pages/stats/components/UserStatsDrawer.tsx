@@ -4,10 +4,7 @@ import { ExternalLink } from 'lucide-react'
 import { apiClient } from '@core/lib/api-client'
 import { openProfileLink, userInitials, userPhotoUrl } from '@core/lib/user-utils'
 import type { DrawerUser, UserStats } from '@stats/types'
-import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
-import { Badge } from '@core/components/ui/badge'
-import { Drawer, DrawerContent } from '@core/components/ui/drawer'
-import { Skeleton } from '@core/components/ui/skeleton'
+import { Avatar, AvatarFallback, AvatarImage, Badge, Drawer, DrawerContent, Skeleton } from '@ui'
 
 interface UserStatsDrawerProps {
   user: DrawerUser | null

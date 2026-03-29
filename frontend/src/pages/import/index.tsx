@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { apiClient } from '@core/lib/api-client'
-import { Button } from '@core/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
-import { Input } from '@core/components/ui/input'
-import { Label } from '@core/components/ui/label'
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
 

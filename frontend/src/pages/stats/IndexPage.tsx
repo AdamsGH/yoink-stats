@@ -4,9 +4,7 @@ import { useNavigate } from 'react-router'
 import { BarChart3, ChevronRight, MessageSquare } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
-import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@core/components/ui/item'
-import { Skeleton } from '@core/components/ui/skeleton'
+import { Card, CardContent, CardHeader, CardTitle, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
 

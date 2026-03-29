@@ -11,8 +11,7 @@ import {
 } from 'recharts'
 
 import { apiClient } from '@core/lib/api-client'
-import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
-import { Skeleton } from '@core/components/ui/skeleton'
+import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
 import { chartColors, StatCard, StatCardSkeleton } from '@core/components/charts'
