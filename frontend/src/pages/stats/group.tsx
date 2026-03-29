@@ -235,15 +235,21 @@ function MemberDrawer({ member, chatId, onClose }: { member: Member | null; chat
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <p className="font-semibold text-base truncate">{memberLabel(m)}</p>
-                    <a
-                      href={m.username ? `https://t.me/${m.username}` : `tg://user?id=${m.user_id}`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      onClick={() => {
+                        const tg = window.Telegram?.WebApp
+                        if (m.username) {
+                          const url = `https://t.me/${m.username}`
+                          tg ? tg.openTelegramLink(url) : window.open(url, '_blank')
+                        } else {
+                          tg ? tg.openTelegramLink(`tg://user?id=${m.user_id}`) : window.open(`tg://user?id=${m.user_id}`)
+                        }
+                      }}
                       className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                      title={m.username ? `@${m.username}` : `tg://user?id=${m.user_id}`}
+                      title={m.username ? `@${m.username}` : `ID: ${m.user_id}`}
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
+                    </button>
                   </div>
                   {m.username && <p className="text-sm text-muted-foreground">@{m.username}</p>}
                   <div className="flex items-center gap-2 mt-1">
@@ -459,11 +465,11 @@ function MembersTab({
                   </ItemDescription>
                 </ItemContent>
                 <ItemActions className="flex-col items-end gap-1">
-                  <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0 h-5 flex items-center">
+                  <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0.5">
                     {m.is_active ? 'active' : 'inactive'}
                   </Badge>
                   {m.in_chat === false && (
-                    <Badge variant="outline" className="text-xs px-1.5 py-0 h-5 flex items-center text-muted-foreground">
+                    <Badge variant="outline" className="text-xs px-1.5 py-0.5 text-muted-foreground">
                       left
                     </Badge>
                   )}
