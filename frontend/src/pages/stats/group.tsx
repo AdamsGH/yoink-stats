@@ -297,12 +297,14 @@ function MembersTab({
   loading,
   onLoad,
   sessionAvailable,
+  period,
 }: {
   chatId: number
   members: Member[] | null
   loading: boolean
   onLoad: (members: Member[]) => void
   sessionAvailable: boolean
+  period: Period
 }) {
   const [syncing, setSyncing] = useState(false)
   const [search, setSearch] = useState('')
@@ -323,9 +325,16 @@ function MembersTab({
   const hasChatInfo = (members ?? []).some((m) => m.in_chat === true || m.in_chat === false)
 
   const filtered = useMemo(() => {
+    const cutoffMs = period > 0 ? Date.now() - period * 86400_000 : null
+    const isActiveInPeriod = (m: Member) => {
+      if (!cutoffMs) return true
+      if (!m.last_active_at) return false
+      return new Date(m.last_active_at).getTime() >= cutoffMs
+    }
+
     const list = (members ?? []).filter((m) => {
-      if (filter === 'active' && !m.is_active) return false
-      if (filter === 'inactive' && m.is_active) return false
+      if (filter === 'active' && !isActiveInPeriod(m)) return false
+      if (filter === 'inactive' && isActiveInPeriod(m)) return false
       if (chatFilter === 'in_chat' && m.in_chat !== true) return false
       if (chatFilter === 'left' && m.in_chat !== false) return false
       if (!search) return true
@@ -349,7 +358,7 @@ function MembersTab({
       }
     })
     return list
-  }, [members, filter, chatFilter, search, sortBy, sortDir])
+  }, [members, filter, chatFilter, search, sortBy, sortDir, period])
 
   return (
     <>
@@ -500,6 +509,7 @@ export default function StatsGroupPage() {
   const [periodData, setPeriodData] = useState<PeriodData | null>(null)
   const [loading, setLoading] = useState(true)
   const [periodLoading, setPeriodLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState('stats')
   const [members, setMembers] = useState<Member[] | null>(null)
   const [membersLoading, setMembersLoading] = useState(false)
   const [sessionAvailable, setSessionAvailable] = useState(false)
@@ -685,14 +695,14 @@ export default function StatsGroupPage() {
         )}
       </div>
 
-      <Tabs defaultValue="stats">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="flex items-center justify-between gap-2">
           <TabsList>
             <TabsTrigger value="stats">{t('stats.tab_stats')}</TabsTrigger>
             {isAdmin && <TabsTrigger value="members">{t('stats.tab_members', { defaultValue: 'Members' })}</TabsTrigger>}
             {identity?.role === 'owner' && <TabsTrigger value="import">{t('stats.tab_import')}</TabsTrigger>}
           </TabsList>
-          <PeriodToggle value={period} onChange={setPeriod} />
+          {activeTab !== 'import' && <PeriodToggle value={period} onChange={setPeriod} />}
         </div>
 
         <TabsContent value="stats" className="space-y-4 mt-4">
@@ -1084,6 +1094,7 @@ export default function StatsGroupPage() {
               loading={membersLoading}
               onLoad={setMembers}
               sessionAvailable={sessionAvailable}
+              period={period}
             />
           </TabsContent>
         )}
