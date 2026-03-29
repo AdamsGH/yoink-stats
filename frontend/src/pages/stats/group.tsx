@@ -29,6 +29,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
 import { Badge } from '@core/components/ui/badge'
 import { Button } from '@core/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
+import { Drawer, DrawerContent } from '@core/components/ui/drawer'
 import { Input } from '@core/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@core/components/ui/item'
 import { Skeleton } from '@core/components/ui/skeleton'
@@ -158,14 +159,109 @@ interface Member {
   in_chat?: boolean
 }
 
+function memberLabel(m: Member) { return m.display_name ?? m.username ?? String(m.user_id) }
+function memberInitials(m: Member) { return (m.display_name ?? m.username ?? '#').slice(0, 2).toUpperCase() }
+function memberPhotoUrl(m: Member) {
+  if (!m.has_photo) return undefined
+  return `${apiClient.defaults.baseURL}/users/${m.user_id}/photo`
+}
+function formatRelative(iso: string | null) {
+  if (!iso) return null
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  if (days === 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 30) return `${days}d ago`
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`
+  return `${Math.floor(days / 365)}y ago`
+}
+
+interface UserStats {
+  user_id: number
+  username: string | null
+  display_name: string | null
+  total: number
+  reaction_count: number
+  first_date: string | null
+  last_date: string | null
+  avg_per_day: number
+  top_type: string | null
+}
+
+function MemberDrawer({ member, chatId, onClose }: { member: Member | null; chatId: number; onClose: () => void }) {
+  const [stats, setStats] = useState<UserStats | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!member) { setStats(null); return }
+    setLoading(true)
+    apiClient.get<UserStats>('/stats/user-stats', { params: { chat_id: chatId, user_id: member.user_id } })
+      .then((r) => setStats(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [member?.user_id, chatId])
+
+  const m = member
+
+  return (
+    <Drawer open={!!m} onOpenChange={(o) => !o && onClose()}>
+      <DrawerContent className="max-h-[80vh] border-0">
+        {m && (
+          <>
+            <div className="bg-gradient-to-b from-muted/60 to-background -mt-7 pt-7 px-4 pb-4 border-b border-border/50 rounded-t-[10px]">
+              <div className="flex items-center gap-4">
+                <Avatar className="size-14 ring-2 ring-border shadow-md">
+                  <AvatarImage src={memberPhotoUrl(m)} />
+                  <AvatarFallback className="text-lg font-bold">{memberInitials(m)}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-base truncate">{memberLabel(m)}</p>
+                  {m.username && <p className="text-sm text-muted-foreground">@{m.username}</p>}
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
+                      {m.is_active ? 'active' : 'inactive'}
+                    </Badge>
+                    {m.in_chat === true && <Badge variant="outline" className="text-xs px-1.5 py-0">in chat</Badge>}
+                    {m.in_chat === false && <Badge variant="outline" className="text-xs px-1.5 py-0 text-muted-foreground">left</Badge>}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="overflow-y-auto px-4 py-3 space-y-1">
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)
+              ) : (
+                <>
+                  {[
+                    ['Messages', m.message_count.toLocaleString()],
+                    ['Reactions given', m.reaction_count > 0 ? m.reaction_count.toLocaleString() : '—'],
+                    ['Avg / day', stats?.avg_per_day ?? '—'],
+                    ['Top type', stats?.top_type ?? '—'],
+                    ['First seen', stats?.first_date ? new Date(stats.first_date).toLocaleDateString() : '—'],
+                    ['Last active', m.last_active_at ? new Date(m.last_active_at).toLocaleDateString() : '—'],
+                  ].map(([label, value]) => (
+                    <div key={String(label)} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                      <span className="text-sm text-muted-foreground">{label}</span>
+                      <span className="text-sm font-medium tabular-nums">{String(value)}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </DrawerContent>
+    </Drawer>
+  )
+}
+
 function MembersTab({ chatId }: { chatId: number }) {
-  const navigate = useNavigate()
   const [members, setMembers] = useState<Member[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [sessionAvailable, setSessionAvailable] = useState(false)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [filter, setFilter] = useState<'all' | 'active' | 'inactive' | 'in_chat' | 'left'>('all')
+  const [selected, setSelected] = useState<Member | null>(null)
   const loaded = useRef(false)
   const sessionChecked = useRef(false)
 
@@ -195,9 +291,13 @@ function MembersTab({ chatId }: { chatId: number }) {
       .finally(() => setSyncing(false))
   }
 
+  const hasChatInfo = (members ?? []).some((m) => m.in_chat !== undefined)
+
   const filtered = (members ?? []).filter((m) => {
     if (filter === 'active' && !m.is_active) return false
     if (filter === 'inactive' && m.is_active) return false
+    if (filter === 'in_chat' && m.in_chat !== true) return false
+    if (filter === 'left' && m.in_chat !== false) return false
     if (!search) return true
     const q = search.toLowerCase()
     return (
@@ -207,125 +307,102 @@ function MembersTab({ chatId }: { chatId: number }) {
     )
   })
 
-  function memberLabel(m: Member) {
-    return m.display_name ?? m.username ?? String(m.user_id)
-  }
-
-  function memberInitials(m: Member) {
-    return (m.display_name ?? m.username ?? '#').slice(0, 2).toUpperCase()
-  }
-
-  function memberPhotoUrl(m: Member) {
-    if (!m.has_photo) return undefined
-    return `${apiClient.defaults.baseURL}/users/${m.user_id}/photo`
-  }
-
-  function formatRelative(iso: string | null) {
-    if (!iso) return null
-    const d = new Date(iso)
-    const diff = Date.now() - d.getTime()
-    const days = Math.floor(diff / 86400000)
-    if (days === 0) return 'today'
-    if (days === 1) return 'yesterday'
-    if (days < 30) return `${days}d ago`
-    if (days < 365) return `${Math.floor(days / 30)}mo ago`
-    return `${Math.floor(days / 365)}y ago`
-  }
+  const filters: { key: typeof filter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'inactive', label: 'Inactive' },
+    ...(hasChatInfo ? [
+      { key: 'in_chat' as typeof filter, label: 'In chat' },
+      { key: 'left' as typeof filter, label: 'Left' },
+    ] : []),
+  ]
 
   return (
-    <Card>
-      <CardHeader className="px-4 py-3 gap-2">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search members..."
-              className="h-8 pl-8 text-sm"
-            />
-          </div>
-          <div className="flex rounded-md border text-xs">
-            {(['all', 'active', 'inactive'] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`h-8 px-2.5 capitalize transition-colors first:rounded-l-md last:rounded-r-md ${filter === f ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-          {sessionAvailable && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5 text-xs shrink-0"
-              onClick={handleSync}
-              disabled={syncing}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing...' : 'Sync all'}
-            </Button>
-          )}
-        </div>
-        {members && (
-          <p className="text-xs text-muted-foreground">
-            {filtered.length} of {members.length} {members.some(m => m.in_chat !== undefined) ? 'total' : 'active senders'}
-            {!sessionAvailable && <span className="ml-1 opacity-60">· only message senders shown</span>}
-          </p>
-        )}
-      </CardHeader>
-      <CardContent className="px-2 py-0 pb-2">
-        {loading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 px-2 py-2">
-              <Skeleton className="h-9 w-9 rounded-full" />
-              <div className="flex-1 space-y-1.5">
-                <Skeleton className="h-3.5 w-32" />
-                <Skeleton className="h-3 w-48" />
-              </div>
+    <>
+      <Card>
+        <CardHeader className="px-4 py-3 gap-2">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search members..."
+                className="h-8 pl-8 text-sm"
+              />
             </div>
-          ))
-        ) : filtered.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No members found</p>
-        ) : (
-          filtered.map((m) => (
-            <Item
-              key={m.user_id}
-              className="px-2 cursor-pointer"
-              onClick={() => navigate(`/stats/${chatId}/user/${m.user_id}`)}
-            >
-              <ItemMedia>
-                <Avatar className="h-9 w-9">
-                  <AvatarImage src={memberPhotoUrl(m)} />
-                  <AvatarFallback className="text-xs">{memberInitials(m)}</AvatarFallback>
-                </Avatar>
-              </ItemMedia>
-              <ItemContent>
-                <ItemTitle className="text-sm">{memberLabel(m)}</ItemTitle>
-                <ItemDescription className="text-xs">
-                  {m.message_count.toLocaleString()} msgs
-                  {m.reaction_count > 0 && ` · ${m.reaction_count.toLocaleString()} reactions`}
-                  {m.last_active_at && ` · ${formatRelative(m.last_active_at)}`}
-                </ItemDescription>
-              </ItemContent>
-              <ItemActions className="flex-col items-end gap-1">
-                <Badge
-                  variant={m.is_active ? 'default' : 'secondary'}
-                  className="text-xs px-1.5 py-0"
+            {sessionAvailable && (
+              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs shrink-0" onClick={handleSync} disabled={syncing}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing...' : 'Sync all'}
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex rounded-md border text-xs">
+              {filters.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setFilter(f.key)}
+                  className={`h-7 px-2.5 transition-colors first:rounded-l-md last:rounded-r-md ${filter === f.key ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
                 >
-                  {m.is_active ? 'active' : 'inactive'}
-                </Badge>
-                {m.in_chat === false && (
-                  <span className="text-[10px] text-muted-foreground">left</span>
-                )}
-              </ItemActions>
-            </Item>
-          ))
-        )}
-      </CardContent>
-    </Card>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            {members && (
+              <p className="text-xs text-muted-foreground shrink-0">
+                {filtered.length} / {members.length}
+                {!sessionAvailable && <span className="ml-1 opacity-60">· senders only</span>}
+              </p>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="px-2 py-0 pb-2">
+          {loading ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-2 py-2">
+                <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-32" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+              </div>
+            ))
+          ) : filtered.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">No members found</p>
+          ) : (
+            filtered.map((m) => (
+              <Item key={m.user_id} className="px-2 cursor-pointer" onClick={() => setSelected(m)}>
+                <ItemMedia>
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={memberPhotoUrl(m)} />
+                    <AvatarFallback className="text-xs">{memberInitials(m)}</AvatarFallback>
+                  </Avatar>
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle className="text-sm">{memberLabel(m)}</ItemTitle>
+                  <ItemDescription className="text-xs">
+                    {m.message_count.toLocaleString()} msgs
+                    {m.reaction_count > 0 && ` · ${m.reaction_count.toLocaleString()} ❤`}
+                    {m.last_active_at && ` · ${formatRelative(m.last_active_at)}`}
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions className="flex-col items-end gap-1">
+                  <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
+                    {m.is_active ? 'active' : 'inactive'}
+                  </Badge>
+                  {m.in_chat === false && (
+                    <span className="text-[10px] text-muted-foreground">left</span>
+                  )}
+                </ItemActions>
+              </Item>
+            ))
+          )}
+        </CardContent>
+      </Card>
+      <MemberDrawer member={selected} chatId={chatId} onClose={() => setSelected(null)} />
+    </>
   )
 }
 

@@ -473,12 +473,21 @@ async def stats_user(
         WHERE chat_id = :chat_id AND from_user = :user_id
     """), {"chat_id": chat_id, "user_id": user_id})).fetchone()
 
+    reaction_row = (await session.execute(text("""
+        SELECT COUNT(*) AS reaction_count
+        FROM stats_reactions
+        WHERE chat_id = :chat_id AND user_id = :user_id
+    """), {"chat_id": chat_id, "user_id": user_id})).fetchone()
+
+    reaction_count = int(reaction_row.reaction_count) if reaction_row else 0
+
     if not summary or not summary.total:
         return {
             "user_id": user_id,
             "username": None,
             "display_name": None,
             "total": 0,
+            "reaction_count": reaction_count,
             "first_date": None,
             "last_date": None,
             "avg_per_day": 0.0,
@@ -513,6 +522,7 @@ async def stats_user(
         "username": name_row.username if name_row else None,
         "display_name": name_row.display_name if name_row else None,
         "total": total,
+        "reaction_count": reaction_count,
         "first_date": first_date.isoformat() if first_date else None,
         "last_date": last_date.isoformat() if last_date else None,
         "avg_per_day": avg_per_day,
