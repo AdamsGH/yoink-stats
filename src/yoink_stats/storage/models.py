@@ -39,6 +39,7 @@ class ChatMessage(Base):
     file_id: Mapped[str | None] = mapped_column(String(256))
     is_edited: Mapped[bool] = mapped_column(__import__("sqlalchemy").Boolean, default=False, nullable=False)
     sender_tag: Mapped[str | None] = mapped_column(String(64))
+    message_thread_id: Mapped[int | None] = mapped_column(BigInteger)
     text_search: Mapped[None] = mapped_column(TSVECTOR, nullable=True, index=False)
 
 

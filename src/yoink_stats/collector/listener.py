@@ -79,6 +79,11 @@ def _message_to_kwargs(msg: Message) -> dict:
     # sender_tag: tag or custom title of the sender (Bot API 9.5, supergroups only)
     sender_tag: str | None = getattr(msg, "sender_tag", None) or None
 
+    # message_thread_id: forum topic ID (supergroups with topics enabled)
+    message_thread_id: int | None = None
+    if getattr(msg, "is_topic_message", False):
+        message_thread_id = getattr(msg, "message_thread_id", None)
+
     return {
         "message_id": msg.message_id,
         "chat_id": msg.chat_id,
@@ -97,6 +102,7 @@ def _message_to_kwargs(msg: Message) -> dict:
         "file_id": file_id,
         "is_edited": False,
         "sender_tag": sender_tag,
+        "message_thread_id": message_thread_id,
     }
 
 
