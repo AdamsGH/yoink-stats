@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { BarChart3, ChevronRight, MessageSquare } from 'lucide-react'
 
-import { apiClient } from '@core/lib/api-client'
+import { statsApi } from '@stats/api'
 import { Card, CardContent, CardHeader, CardTitle, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
@@ -15,8 +15,8 @@ export default function StatsIndexPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    apiClient
-      .get<StatsGroup[]>('/stats/groups')
+    statsApi
+      .getGroups()
       .then((res) => {
         const data = res.data
         if (data.length === 1) {

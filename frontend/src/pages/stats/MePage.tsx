@@ -10,34 +10,11 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 
-import { apiClient } from '@core/lib/api-client'
+import { meApi, type DlOverview, type InsightStats, type MusicStats } from '@stats/api/me'
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
 import { chartColors, StatCard, StatCardSkeleton } from '@core/components/charts'
-
-// types
-
-interface InsightStats {
-  total_summaries: number
-  this_week: number
-  today: number
-  by_command?: Record<string, number>
-  by_day?: Array<{ date: string; count: number }>
-}
-
-interface MusicStats {
-  total: number
-  this_week: number
-  today: number
-  top_platforms?: Array<{ platform: string; count: number }>
-  top_artists?: Array<{ artist: string; count: number }>
-  by_day?: Array<{ date: string; count: number }>
-}
-
-interface DlOverview {
-  downloads_by_day: Array<{ date: string; count: number }>
-}
 
 
 
@@ -153,10 +130,10 @@ export default function StatsMePage() {
 
   useEffect(() => {
     Promise.all([
-      apiClient.get<UserStats>('/users/me/stats').catch(() => null),
-      apiClient.get<DlOverview>('/dl/stats/overview', { params: { days: 30 } }).catch(() => null),
-      apiClient.get<InsightStats>('/insight/me/stats').catch(() => null),
-      apiClient.get<MusicStats>('/music/me/stats').catch(() => null),
+      meApi.getStats('/users/me/stats').catch(() => null),
+      meApi.getDlOverview(30).catch(() => null),
+      meApi.getInsightStats().catch(() => null),
+      meApi.getMusicStats().catch(() => null),
     ]).then(([dl, overview, insight, music]) => {
       setDlStats(dl?.data ?? null)
       setDlOverview(overview?.data ?? null)
@@ -206,7 +183,7 @@ export default function StatsMePage() {
                       centered
                       icon={CATEGORY_ICONS[cat] ?? <Package className="h-4 w-4" />}
                       label={t(`mystats.cat_${cat}`, { defaultValue: cat })}
-                      value={count}
+                      value={cat === 'music' ? (musicStats?.total ?? count) : count}
                     />
                   ))}
                 </div>

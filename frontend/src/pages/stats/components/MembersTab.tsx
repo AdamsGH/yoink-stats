@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowDownAZ, ArrowUpAZ, RefreshCw, Search } from 'lucide-react'
 
-import { apiClient } from '@core/lib/api-client'
+import { statsApi } from '@stats/api'
 import { userInitials, userPhotoUrl } from '@core/lib/user-utils'
 import type { DrawerUser, Member } from '@stats/types'
 import type { Period } from '@core/components/charts'
@@ -42,7 +42,7 @@ export function MembersTab({ chatId, members, loading, onLoad, sessionAvailable,
 
   function handleSync() {
     setSyncing(true)
-    apiClient.post<Member[]>('/stats/members/sync', null, { params: { chat_id: chatId } })
+    statsApi.syncMembers(chatId)
       .then((r) => onLoad(r.data))
       .catch(() => toast.error('Sync failed'))
       .finally(() => setSyncing(false))

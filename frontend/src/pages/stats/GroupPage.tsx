@@ -24,7 +24,8 @@ import {
 
 import { ArrowLeft, Calendar, Clock, Download, MessageSquare, Type, Users as UsersIcon } from 'lucide-react'
 
-import { apiClient } from '@core/lib/api-client'
+import { statsApi, type TopReactions } from '@stats/api'
+import { threadsApi } from '@core/lib/api'
 import { formatDateMonth } from '@core/lib/utils'
 import { userInitials, userPhotoUrl } from '@core/lib/user-utils'
 import type { DrawerUser } from '@stats/types'
@@ -39,7 +40,6 @@ import type {
   MentionStat,
   MessageType,
   MonthActivity,
-  StatsGroup,
   StatsOverview,
   TopUser,
   WordCount,
@@ -72,25 +72,6 @@ interface MemberEvent {
   date: string
   joined: number
   left: number
-}
-
-interface ReactionGiver {
-  user_id: number
-  display_name: string | null
-  username: string | null
-  has_photo: boolean
-  reaction_count: number
-}
-
-interface TopEmoji {
-  reaction_key: string
-  reaction_type: string
-  count: number
-}
-
-interface TopReactions {
-  top_givers: ReactionGiver[]
-  top_emoji: TopEmoji[]
 }
 
 interface GroupData {
@@ -184,7 +165,7 @@ export default function StatsGroupPage() {
 
   useEffect(() => {
     if (!numericChatId) return
-    apiClient.get<{ user_id: number; status: string }[]>('/stats/chat-admins', { params: { chat_id: numericChatId } })
+    statsApi.getChatAdmins(numericChatId)
       .then((r) => setChatAdmins(r.data))
       .catch(() => {})
   }, [numericChatId])
@@ -193,8 +174,8 @@ export default function StatsGroupPage() {
     if (!numericChatId) return
     setLoading(true)
     Promise.all([
-      apiClient.get<StatsOverview>('/stats/overview', { params: { chat_id: numericChatId } }),
-      apiClient.get<StatsGroup[]>('/stats/groups'),
+      statsApi.getOverview({ chat_id: numericChatId }),
+      statsApi.getGroups(),
     ])
       .then(([overviewRes, groupsRes]) => {
         const grp = groupsRes.data.find((g) => g.chat_id === numericChatId)
@@ -216,19 +197,19 @@ export default function StatsGroupPage() {
     if (period > 0) p.days = period
 
     Promise.all([
-      apiClient.get<TopUser[]>('/stats/top-users', { params: { ...p, limit: 10 } }),
-      apiClient.get<HourActivity[]>('/stats/activity-by-hour', { params: p }),
-      apiClient.get<DayActivity[]>('/stats/activity-by-day', { params: p }),
-      apiClient.get<MessageType[]>('/stats/message-types', { params: p }),
-      apiClient.get<WordCount[]>('/stats/words', { params: { ...p, limit: 20 } }),
-      apiClient.get<MonthActivity[]>('/stats/activity-by-month', { params: p }),
-      apiClient.get<MentionStat[]>('/stats/mention-stats', { params: { ...p, limit: 15 } }),
-      apiClient.get<DailyActivity[]>('/stats/daily-activity', { params: p }),
-      apiClient.get<MemberEvent[]>('/stats/member-events', { params: p }),
-      apiClient.get<AvgMessageLength[]>('/stats/avg-message-length', { params: { ...p, limit: 10 } }),
-      apiClient.get<ResponseTimeData>('/stats/response-time', { params: { ...p, limit: 10 } }),
-      apiClient.get<MediaTrend[]>('/stats/media-trend', { params: p }),
-      isAdmin ? apiClient.get<TopReactions>('/stats/top-reactions', { params: { ...p, limit: 10 } }).catch(() => null) : Promise.resolve(null),
+      statsApi.getTopUsers({ ...p, limit: 10 }),
+      statsApi.getActivityByHour(p),
+      statsApi.getActivityByDay(p),
+      statsApi.getMessageTypes(p),
+      statsApi.getWords({ ...p, limit: 20 }),
+      statsApi.getActivityByMonth(p),
+      statsApi.getMentions({ ...p, limit: 15 }),
+      statsApi.getDailyActivity(p),
+      statsApi.getMemberEvents(p),
+      statsApi.getAvgMessageLength({ ...p, limit: 10 }),
+      statsApi.getResponseTime({ ...p, limit: 10 }),
+      statsApi.getMediaTrend(p),
+      isAdmin ? statsApi.getTopReactions({ ...p, limit: 10 }).catch(() => null) : Promise.resolve(null),
     ])
       .then(([usersRes, hourRes, dayRes, typesRes, wordsRes, monthRes, mentionRes, dailyRes, eventsRes, avgLenRes, rtRes, mtRes, reactRes]) => {
         setData((prev) => ({
@@ -245,7 +226,7 @@ export default function StatsGroupPage() {
           mediaTrend: mtRes.data,
           topReactions: reactRes ? reactRes.data : null,
         }))
-        setPeriodData({ daily: dailyRes.data, memberEvents: eventsRes.data })
+        setPeriodData({ daily: dailyRes.data as DailyActivity[], memberEvents: eventsRes.data as MemberEvent[] })
       })
       .catch(() => toast.error('Failed to load period stats'))
       .finally(() => setPeriodLoading(false))
@@ -259,7 +240,7 @@ export default function StatsGroupPage() {
     setMembersLoading(true)
     const params: Record<string, unknown> = { chat_id: numericChatId }
     if (period > 0) params.days = period
-    apiClient.get<Member[]>('/stats/members', { params })
+    statsApi.getMembers({ chat_id: numericChatId })
       .then((r) => setMembers(r.data))
       .catch(() => setMembers([]))
       .finally(() => setMembersLoading(false))
@@ -268,7 +249,7 @@ export default function StatsGroupPage() {
   useEffect(() => {
     if (!isAdmin || sessionChecked.current) return
     sessionChecked.current = true
-    apiClient.get<{ available: boolean }>('/threads/status')
+    threadsApi.getStatus()
       .then((r) => setSessionAvailable(r.data.available))
       .catch(() => setSessionAvailable(false))
   }, [isAdmin])
@@ -751,7 +732,7 @@ export default function StatsGroupPage() {
                     <CardTitle className="text-sm">Top reaction givers</CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-3">
-                    <RankedList items={data.topReactions.top_givers.map(u => ({ label: u.display_name ?? u.username ?? String(u.user_id), value: u.reaction_count }))} labelKey="label" valueKey="value" />
+                    <RankedList items={data.topReactions.top_givers.map(u => ({ label: u.display_name ?? u.username ?? String(u.user_id), value: u.reaction_count ?? u.count }))} labelKey="label" valueKey="value" />
                   </CardContent>
                 </Card>
               )}
@@ -761,7 +742,7 @@ export default function StatsGroupPage() {
                     <CardTitle className="text-sm">Top emoji</CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-3">
-                    <RankedList items={data.topReactions.top_emoji.map(e => ({ label: e.reaction_type === 'emoji' ? e.reaction_key : `[custom]`, value: e.count }))} labelKey="label" valueKey="value" />
+                    <RankedList items={data.topReactions.top_emoji.map(e => ({ label: e.reaction_type === 'emoji' ? (e.reaction_key ?? e.emoji ?? '') : `[custom]`, value: e.count }))} labelKey="label" valueKey="value" />
                   </CardContent>
                 </Card>
               )}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 
-import { apiClient } from '@core/lib/api-client'
+import { statsApi } from '@stats/api'
 import { formatDateDay } from '@core/lib/utils'
 import type { UserStats } from '@stats/types'
 import { Button, Card, CardContent, Skeleton } from '@ui'
@@ -33,8 +33,8 @@ export default function StatsUserPage() {
 
   useEffect(() => {
     if (!chatId || !userId) return
-    apiClient
-      .get<UserStats>('/stats/user-stats', { params: { chat_id: chatId, user_id: userId } })
+    statsApi
+      .getUserStats(Number(chatId), Number(userId))
       .then((r) => setData(r.data))
       .catch(() => toast.error('Failed to load user stats'))
       .finally(() => setLoading(false))

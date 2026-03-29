@@ -1,20 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { apiClient } from '@core/lib/api-client'
+import { importApi, type ImportStatus } from '@stats/api/import'
+import { statsApi } from '@stats/api/stats'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
-
-interface ImportStatus {
-  job_id: string
-  status: 'running' | 'done' | 'error'
-  inserted: number
-  skipped: number
-  events: number
-  processed: number
-  total: number
-  error: string | null
-}
 
 function DropZone({
   onFile,
@@ -148,8 +138,8 @@ export default function ImportPage({ defaultChatId }: { defaultChatId?: string }
 
   useEffect(() => {
     if (defaultChatId) return
-    apiClient
-      .get<StatsGroup[]>('/stats/groups')
+    statsApi
+      .getGroups()
       .then((r) => {
         setGroups(r.data)
         if (r.data.length === 1) setChatId(String(r.data[0].chat_id))
@@ -167,7 +157,7 @@ export default function ImportPage({ defaultChatId }: { defaultChatId?: string }
     if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(async () => {
       try {
-        const r = await apiClient.get<ImportStatus>(`/stats/import/${jobId}`)
+        const r = await importApi.getStatus(jobId)
         setJobStatus(r.data)
         if (r.data.status !== 'running') {
           clearInterval(pollRef.current!)
@@ -195,17 +185,9 @@ export default function ImportPage({ defaultChatId }: { defaultChatId?: string }
     setJobStatus(null)
 
     try {
-      const r = await apiClient.post<ImportStatus>(
-        `/stats/import?chat_id=${chatId}`,
-        form,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 600_000,
-          onUploadProgress: (e) => {
-            if (e.total) setUploadPct(Math.round((e.loaded / e.total) * 100))
-          },
-        },
-      )
+      const r = await importApi.startFromFile(form, Number(chatId), (e) => {
+        if (e.total) setUploadPct(Math.round((e.loaded / (e.total as number)) * 100))
+      })
       setUploadPct(null)
       setJobStatus(r.data)
       if (r.data.status === 'running') {
@@ -229,10 +211,7 @@ export default function ImportPage({ defaultChatId }: { defaultChatId?: string }
     setJobStatus(null)
 
     try {
-      const r = await apiClient.post<ImportStatus>('/stats/import/by-path', {
-        path: serverPath.trim(),
-        chat_id: Number(chatId),
-      })
+      const r = await importApi.startFromPath(serverPath.trim(), Number(chatId))
       setJobStatus(r.data)
       if (r.data.status === 'running') {
         startPolling(r.data.job_id)

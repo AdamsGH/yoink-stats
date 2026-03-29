@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 
-import { apiClient } from '@core/lib/api-client'
+import { statsApi } from '@stats/api'
 import { openProfileLink, userInitials, userPhotoUrl } from '@core/lib/user-utils'
 import type { DrawerUser, UserStats } from '@stats/types'
 import { Avatar, AvatarFallback, AvatarImage, Badge, Drawer, DrawerContent, Skeleton } from '@ui'
@@ -19,7 +19,7 @@ export function UserStatsDrawer({ user, chatId, onClose }: UserStatsDrawerProps)
   useEffect(() => {
     if (!user) { setStats(null); return }
     setLoading(true)
-    apiClient.get<UserStats>('/stats/user-stats', { params: { chat_id: chatId, user_id: user.user_id } })
+    statsApi.getUserStats(chatId, user.user_id)
       .then((r) => setStats(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
