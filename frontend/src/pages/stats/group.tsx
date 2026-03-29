@@ -69,7 +69,6 @@ function userInitials(u: TopUser): string {
 }
 
 function userPhotoUrl(u: TopUser): string | undefined {
-  if (!u.has_photo) return undefined
   return `${apiClient.defaults.baseURL}/users/${u.user_id}/photo`
 }
 
@@ -183,7 +182,6 @@ interface Member {
 function memberLabel(m: Member) { return m.display_name ?? m.username ?? String(m.user_id) }
 function memberInitials(m: Member) { return (m.display_name ?? m.username ?? '#').slice(0, 2).toUpperCase() }
 function memberPhotoUrl(m: Member) {
-  if (!m.has_photo) return undefined
   return `${apiClient.defaults.baseURL}/users/${m.user_id}/photo`
 }
 function formatRelative(iso: string | null) {
@@ -445,11 +443,13 @@ function MembersTab({
                   </ItemDescription>
                 </ItemContent>
                 <ItemActions className="flex-col items-end gap-1">
-                  <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
+                  <Badge variant={m.is_active ? 'default' : 'secondary'} className="text-xs px-1.5 py-0 h-5 flex items-center">
                     {m.is_active ? 'active' : 'inactive'}
                   </Badge>
                   {m.in_chat === false && (
-                    <span className="text-[10px] text-muted-foreground">left</span>
+                    <Badge variant="outline" className="text-xs px-1.5 py-0 h-5 flex items-center text-muted-foreground">
+                      left
+                    </Badge>
                   )}
                 </ItemActions>
               </Item>
