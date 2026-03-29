@@ -280,7 +280,8 @@ function MembersTab({ chatId }: { chatId: number }) {
   const [syncing, setSyncing] = useState(false)
   const [sessionAvailable, setSessionAvailable] = useState(false)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'active' | 'inactive' | 'in_chat' | 'left'>('all')
+  const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [chatFilter, setChatFilter] = useState<'any' | 'in_chat' | 'left'>('any')
   const [selected, setSelected] = useState<Member | null>(null)
   const loaded = useRef(false)
   const sessionChecked = useRef(false)
@@ -316,8 +317,8 @@ function MembersTab({ chatId }: { chatId: number }) {
   const filtered = (members ?? []).filter((m) => {
     if (filter === 'active' && !m.is_active) return false
     if (filter === 'inactive' && m.is_active) return false
-    if (filter === 'in_chat' && m.in_chat !== true) return false
-    if (filter === 'left' && m.in_chat !== false) return false
+    if (chatFilter === 'in_chat' && m.in_chat !== true) return false
+    if (chatFilter === 'left' && m.in_chat !== false) return false
     if (!search) return true
     const q = search.toLowerCase()
     return (
@@ -326,16 +327,6 @@ function MembersTab({ chatId }: { chatId: number }) {
       String(m.user_id).includes(q)
     )
   })
-
-  const filters: { key: typeof filter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'active', label: 'Active' },
-    { key: 'inactive', label: 'Inactive' },
-    ...(hasChatInfo ? [
-      { key: 'in_chat' as typeof filter, label: 'In chat' },
-      { key: 'left' as typeof filter, label: 'Left' },
-    ] : []),
-  ]
 
   return (
     <>
@@ -358,17 +349,32 @@ function MembersTab({ chatId }: { chatId: number }) {
               </Button>
             )}
           </div>
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex rounded-md border text-xs">
-              {filters.map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setFilter(f.key)}
-                  className={`h-7 px-2.5 transition-colors first:rounded-l-md last:rounded-r-md ${filter === f.key ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
-                >
-                  {f.label}
-                </button>
-              ))}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-md border text-xs">
+                {(['all', 'active', 'inactive'] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFilter(f)}
+                    className={`h-7 px-2.5 capitalize transition-colors first:rounded-l-md last:rounded-r-md ${filter === f ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+              {hasChatInfo && (
+                <div className="flex rounded-md border text-xs">
+                  {(['any', 'in_chat', 'left'] as const).map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setChatFilter(f)}
+                      className={`h-7 px-2.5 transition-colors first:rounded-l-md last:rounded-r-md ${chatFilter === f ? 'bg-muted font-semibold' : 'hover:bg-muted/50'}`}
+                    >
+                      {f === 'any' ? 'Any' : f === 'in_chat' ? 'In chat' : 'Left'}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {members && (
               <p className="text-xs text-muted-foreground shrink-0">
