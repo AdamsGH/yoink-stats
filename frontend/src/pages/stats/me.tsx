@@ -17,7 +17,7 @@ import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
 import { chartColors } from '@core/components/charts'
 
-/* ── types ────────────────────────────────────────────────────── */
+// types
 
 interface InsightStats {
   total_summaries: number
@@ -42,7 +42,7 @@ interface DlOverview {
 
 
 
-/* ── reusable components ──────────────────────────────────────── */
+// reusable components
 
 function BigStat({ label, value, icon }: { label: string; value: string | number; icon?: React.ReactNode }) {
   return (
@@ -163,7 +163,7 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   other: <Package className="h-4 w-4" />,
 }
 
-/* ── main page ────────────────────────────────────────────────── */
+// main page
 
 export default function StatsMePage() {
   const { t } = useTranslation()
@@ -203,7 +203,7 @@ export default function StatsMePage() {
 
   return (
     <div className="space-y-4">
-      {/* ─── Downloads ────────────────────────────────────── */}
+      {/* Downloads */}
       <Card>
         <CardHeader className="px-4 py-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -260,7 +260,7 @@ export default function StatsMePage() {
         </CardContent>
       </Card>
 
-      {/* ─── Music ────────────────────────────────────────── */}
+      {/* Music */}
       <Card>
         <CardHeader className="px-4 py-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -323,7 +323,7 @@ export default function StatsMePage() {
         </CardContent>
       </Card>
 
-      {/* ─── AI Summaries ─────────────────────────────────── */}
+      {/* AI Summaries */}
       <Card>
         <CardHeader className="px-4 py-3">
           <CardTitle className="text-base flex items-center gap-2">
