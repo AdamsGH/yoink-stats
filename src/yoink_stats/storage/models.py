@@ -1,7 +1,7 @@
 """Stats plugin ORM models."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger, DateTime, Index, Integer,
@@ -11,11 +11,7 @@ from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.types import NullType
 from sqlalchemy.orm import Mapped, mapped_column
 
-from yoink.core.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from yoink.core.db.base import Base, _now
 
 
 class ChatMessage(Base):

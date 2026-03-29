@@ -12,9 +12,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Help text (expandable blockquotes, HTML, per-language)
-# ---------------------------------------------------------------------------
 
 _GUIDE = {
     "en": (
@@ -98,9 +96,7 @@ def _build_help(lang: str = "en", error: str = "") -> str:
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
 # Argument parser
-# ---------------------------------------------------------------------------
 
 class _NoExitParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
@@ -196,9 +192,7 @@ def _build_parser() -> _NoExitParser:
     return parser
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 async def _get_lang(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
     """Resolve user language from bot_data user_repo."""
@@ -230,9 +224,7 @@ async def _send_help(
         await update.message.reply_html(text)
 
 
-# ---------------------------------------------------------------------------
 # Main command handler
-# ---------------------------------------------------------------------------
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_chat or not update.effective_user:
@@ -336,9 +328,7 @@ def _split(text: str, limit: int) -> list[str]:
     return chunks
 
 
-# ---------------------------------------------------------------------------
 # Dispatch
-# ---------------------------------------------------------------------------
 
 async def _dispatch(
     runner: Any,
