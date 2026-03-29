@@ -4,6 +4,8 @@ import { useNavigate, useParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@core/components/ui/tabs'
 import ImportPage from '@stats/pages/import/index'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -19,10 +21,10 @@ import {
   YAxis,
 } from 'recharts'
 
-
-import { Download } from 'lucide-react'
+import { ArrowLeft, Calendar, Clock, Download, MessageSquare, Type, Users as UsersIcon } from 'lucide-react'
 
 import { apiClient } from '@core/lib/api-client'
+import { Avatar, AvatarFallback, AvatarImage } from '@core/components/ui/avatar'
 import { Button } from '@core/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@core/components/ui/card'
 import { Skeleton } from '@core/components/ui/skeleton'
@@ -39,26 +41,30 @@ import type {
   StatsOverview,
   TopUser,
   WordCount,
+  AvgMessageLength,
+  ResponseTimeData,
+  MediaTrend,
 } from '@stats/types'
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 function formatDate(iso: string | null): string {
   if (!iso) return '-'
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-  })
+  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
 }
 
 function userLabel(u: TopUser): string {
   return u.display_name ?? u.username ?? String(u.user_id)
 }
 
-function yAxisWidth(labels: string[]): number {
-  const maxLen = labels.reduce((m, l) => Math.max(m, l.length), 0)
-  const maxAllowed = Math.floor((typeof window !== 'undefined' ? window.innerWidth : 400) * 0.4)
-  return Math.min(maxAllowed, Math.max(48, maxLen * 7))
+function userInitials(u: TopUser): string {
+  const name = u.display_name ?? u.username ?? ''
+  return name.slice(0, 2).toUpperCase() || '#'
+}
+
+function userPhotoUrl(u: TopUser): string | undefined {
+  if (!u.has_photo) return undefined
+  return `${apiClient.defaults.baseURL}/users/${u.user_id}/photo`
 }
 
 function formatMonthLabel(month: string): string {
@@ -88,11 +94,51 @@ interface GroupData {
   words: WordCount[]
   byMonth: MonthActivity[]
   mentions: MentionStat[]
+  avgLength: AvgMessageLength[]
+  responseTime: ResponseTimeData | null
+  mediaTrend: MediaTrend[]
 }
 
 interface PeriodData {
   daily: DailyActivity[]
   memberEvents: MemberEvent[]
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function RankedList({ items, labelKey, valueKey, limit = 10 }: {
+  items: any[]
+  labelKey: string
+  valueKey: string
+  limit?: number
+}) {
+  const top = items.slice(0, limit)
+  if (top.length === 0) return <p className="text-sm text-muted-foreground text-center py-4">No data</p>
+  const max = Math.max(...top.map((i) => Number(i[valueKey]) || 0))
+  return (
+    <div className="space-y-1.5">
+      {top.map((item, i) => {
+        const val = Number(item[valueKey]) || 0
+        const pct = max > 0 ? (val / max) * 100 : 0
+        return (
+          <div key={i} className="flex items-center gap-2 text-sm">
+            <span className="w-5 text-right text-xs text-muted-foreground tabular-nums">{i + 1}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium text-xs">{String(item[labelKey])}</span>
+                <span className="tabular-nums text-xs text-muted-foreground shrink-0">{val.toLocaleString()}</span>
+              </div>
+              <div className="h-1 rounded-full bg-muted mt-0.5">
+                <div
+                  className="h-full rounded-full bg-primary/60"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function StatsGroupPage() {
@@ -101,18 +147,23 @@ export default function StatsGroupPage() {
   const navigate = useNavigate()
   const numericChatId = Number(chatId)
 
+  const PERIOD_KEY = 'stats_period'
+  const savedPeriod = Number(localStorage.getItem(PERIOD_KEY) || 30) as Period
+
   const [groupTitle, setGroupTitle] = useState<string>('')
   const [data, setData] = useState<GroupData | null>(null)
   const [periodData, setPeriodData] = useState<PeriodData | null>(null)
   const [loading, setLoading] = useState(true)
   const [periodLoading, setPeriodLoading] = useState(false)
-  const [period, setPeriod] = useState<Period>(30)
+  const [period, setPeriodState] = useState<Period>([7, 30, 90, 0].includes(savedPeriod) ? savedPeriod : 30)
+  const setPeriod = (v: Period) => {
+    setPeriodState(v)
+    localStorage.setItem(PERIOD_KEY, String(v))
+  }
 
-  // Overview (all-time) + static per-period data that reloads on period change
   useEffect(() => {
     if (!numericChatId) return
     setLoading(true)
-
     Promise.all([
       apiClient.get<StatsOverview>('/stats/overview', { params: { chat_id: numericChatId } }),
       apiClient.get<StatsGroup[]>('/stats/groups'),
@@ -122,24 +173,17 @@ export default function StatsGroupPage() {
         setGroupTitle(grp?.title ?? `Group ${chatId}`)
         setData((prev) => prev ? { ...prev, overview: overviewRes.data } : {
           overview: overviewRes.data,
-          topUsers: [],
-          byHour: [],
-          byDay: [],
-          types: [],
-          words: [],
-          byMonth: [],
-          mentions: [],
+          topUsers: [], byHour: [], byDay: [], types: [], words: [], byMonth: [], mentions: [],
+          avgLength: [], responseTime: null, mediaTrend: [],
         })
       })
       .catch(() => toast.error('Failed to load group stats'))
       .finally(() => setLoading(false))
   }, [numericChatId, chatId])
 
-  // Period-sensitive data: reloads when period changes
   useEffect(() => {
     if (!numericChatId) return
     setPeriodLoading(true)
-
     const p: Record<string, number> = { chat_id: numericChatId }
     if (period > 0) p.days = period
 
@@ -153,8 +197,11 @@ export default function StatsGroupPage() {
       apiClient.get<MentionStat[]>('/stats/mention-stats', { params: { ...p, limit: 15 } }),
       apiClient.get<DailyActivity[]>('/stats/daily-activity', { params: p }),
       apiClient.get<MemberEvent[]>('/stats/member-events', { params: p }),
+      apiClient.get<AvgMessageLength[]>('/stats/avg-message-length', { params: { ...p, limit: 10 } }),
+      apiClient.get<ResponseTimeData>('/stats/response-time', { params: { ...p, limit: 10 } }),
+      apiClient.get<MediaTrend[]>('/stats/media-trend', { params: p }),
     ])
-      .then(([usersRes, hourRes, dayRes, typesRes, wordsRes, monthRes, mentionRes, dailyRes, eventsRes]) => {
+      .then(([usersRes, hourRes, dayRes, typesRes, wordsRes, monthRes, mentionRes, dailyRes, eventsRes, avgLenRes, rtRes, mtRes]) => {
         setData((prev) => ({
           overview: prev?.overview ?? { chat_id: numericChatId, total_messages: 0, unique_users: 0, first_date: null, last_date: null },
           topUsers: usersRes.data,
@@ -164,11 +211,11 @@ export default function StatsGroupPage() {
           words: wordsRes.data,
           byMonth: monthRes.data,
           mentions: mentionRes.data,
+          avgLength: avgLenRes.data,
+          responseTime: rtRes.data,
+          mediaTrend: mtRes.data,
         }))
-        setPeriodData({
-          daily: dailyRes.data,
-          memberEvents: eventsRes.data,
-        })
+        setPeriodData({ daily: dailyRes.data, memberEvents: eventsRes.data })
       })
       .catch(() => toast.error('Failed to load period stats'))
       .finally(() => setPeriodLoading(false))
@@ -186,20 +233,19 @@ export default function StatsGroupPage() {
 
   const hasMemberEvents = (periodData?.memberEvents.length ?? 0) > 0
 
+  const typesWithPercent = data?.types.map((item) => {
+    const total = data.types.reduce((s, tt) => s + tt.count, 0)
+    return { ...item, percent: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0' }
+  }) ?? []
+
   const exportData = (format: 'json' | 'csv') => {
     if (!data) return
     const payload = {
       group: { chat_id: numericChatId, title: groupTitle },
-      overview: data.overview,
-      topUsers: data.topUsers,
-      byHour: data.byHour,
-      byDay: data.byDay,
-      types: data.types,
-      words: data.words,
-      byMonth: data.byMonth,
-      mentions: data.mentions,
-      daily: periodData?.daily ?? [],
-      memberEvents: periodData?.memberEvents ?? [],
+      overview: data.overview, topUsers: data.topUsers,
+      byHour: data.byHour, byDay: data.byDay, types: data.types,
+      words: data.words, byMonth: data.byMonth, mentions: data.mentions,
+      daily: periodData?.daily ?? [], memberEvents: periodData?.memberEvents ?? [],
     }
     let blob: Blob
     let filename: string
@@ -207,391 +253,428 @@ export default function StatsGroupPage() {
       blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
       filename = `yoink-stats-${numericChatId}.json`
     } else {
-      const rows = data.topUsers.map((u) => [
-        u.user_id, u.username ?? '', u.display_name ?? '', u.count,
-      ])
+      const rows = data.topUsers.map((u) => [u.user_id, u.username ?? '', u.display_name ?? '', u.count])
       const csv = ['user_id,username,display_name,count', ...rows.map((r) => r.join(','))].join('\n')
       blob = new Blob([csv], { type: 'text/csv' })
       filename = `yoink-stats-${numericChatId}.csv`
     }
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
+    a.href = url; a.download = filename; a.click()
     URL.revokeObjectURL(url)
   }
-
-  const typesWithPercent = data?.types.map((item) => {
-    const total = data.types.reduce((s, t) => s + t.count, 0)
-    return { ...item, percent: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0' }
-  }) ?? []
 
   const isLoading = loading || !data
   const isPeriodLoading = periodLoading || !periodData
 
+  const peakHour = data && data.byHour.length > 0
+    ? `${data.byHour.reduce((a, b) => b.count > a.count ? b : a).hour}:00`
+    : '-'
+
+  const peakDay = data && data.byDay.length > 0
+    ? DAY_NAMES[data.byDay.reduce((a, b) => b.count > a.count ? b : a).day] ?? '-'
+    : '-'
+
+  const avgPerDay = (() => {
+    if (periodData?.daily && periodData.daily.length > 0) {
+      const total = periodData.daily.reduce((s, d) => s + d.messages, 0)
+      return Math.round(total / periodData.daily.length)
+    }
+    if (!data?.overview.first_date || !data?.overview.last_date) return '-'
+    const days = Math.max(1, Math.ceil(
+      (new Date(data.overview.last_date).getTime() - new Date(data.overview.first_date).getTime()) / 86_400_000
+    ))
+    return Math.round(data.overview.total_messages / days)
+  })()
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/stats')}>
-          ← {t('stats.back')}
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => navigate('/stats')}>
+          <ArrowLeft className="h-4 w-4" />
         </Button>
-        <span className="text-sm font-medium">{loading ? <Skeleton className="h-5 w-40 inline-block" /> : groupTitle}</span>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-base font-semibold truncate">
+            {loading ? <Skeleton className="h-5 w-40 inline-block" /> : groupTitle}
+          </h1>
+          {!isLoading && (
+            <p className="text-xs text-muted-foreground">
+              {t('stats.total_messages')}: {data.overview.total_messages.toLocaleString()}
+              {' · '}
+              {t('stats.unique_users')}: {data.overview.unique_users.toLocaleString()}
+            </p>
+          )}
+        </div>
         {data && (
-          <div className="ml-auto flex gap-1">
-            <Button variant="outline" size="sm" onClick={() => exportData('json')}>
-              <Download className="mr-1 h-3.5 w-3.5" /> JSON
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => exportData('csv')}>
-              <Download className="mr-1 h-3.5 w-3.5" /> CSV
+          <div className="flex gap-1 shrink-0">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => exportData('json')}>
+              <Download className="h-3.5 w-3.5" />
             </Button>
           </div>
         )}
       </div>
 
       <Tabs defaultValue="stats">
-        <TabsList>
-          <TabsTrigger value="stats">{t('stats.tab_stats')}</TabsTrigger>
-          <TabsTrigger value="import">{t('stats.tab_import')}</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between gap-2">
+          <TabsList>
+            <TabsTrigger value="stats">{t('stats.tab_stats')}</TabsTrigger>
+            <TabsTrigger value="import">{t('stats.tab_import')}</TabsTrigger>
+          </TabsList>
+          <PeriodToggle value={period} onChange={setPeriod} />
+        </div>
 
         <TabsContent value="stats" className="space-y-4 mt-4">
-          {/* Period toggle */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Period</span>
-            <PeriodToggle value={period} onChange={setPeriod} />
-          </div>
-
-      {/* Overview KPIs (all-time, no period filter) */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {isLoading ? (
-          Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
-        ) : (
-          <>
-            <StatCard label={t('stats.total_messages')} value={data.overview.total_messages} />
-            <StatCard label={t('stats.unique_users')} value={data.overview.unique_users} />
-            <StatCard
-              label="Avg / day"
-              value={(() => {
-                if (!data.overview.first_date || !data.overview.last_date) return '-'
-                const days = Math.max(1, Math.ceil(
-                  (new Date(data.overview.last_date).getTime() - new Date(data.overview.first_date).getTime()) / 86_400_000
-                ))
-                return Math.round(data.overview.total_messages / days)
-              })()}
-            />
-            <StatCard
-              label="Peak hour"
-              value={data.byHour.length > 0 ? `${data.byHour.reduce((a, b) => b.count > a.count ? b : a).hour}:00` : '-'}
-            />
-            <StatCard
-              label="Peak day"
-              value={data.byDay.length > 0 ? DAY_NAMES[data.byDay.reduce((a, b) => b.count > a.count ? b : a).day] ?? '-' : '-'}
-            />
-            <StatCard label="Active since" value={formatDate(data.overview.first_date)} />
-          </>
-        )}
-      </div>
-
-      {/* Daily messages + DAU */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">{t('stats.message_history')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isPeriodLoading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : (periodData?.daily.length ?? 0) === 0 ? (
-            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">No data</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={periodData!.daily} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 10 }}
-                  tickFormatter={(v: string) => v.slice(5)}
-                  interval="preserveStartEnd"
-                />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip
-                  labelFormatter={(v) => `Date: ${v}`}
-                  formatter={(v, name) => [v, name === 'messages' ? 'Messages' : 'Active users']}
-                />
-                <Legend formatter={(v) => v === 'messages' ? 'Messages' : 'Active users'} />
-                <Line type="monotone" dataKey="messages" stroke={chartColors()[0]} dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="dau" stroke={chartColors()[3]} dot={false} strokeWidth={1.5} strokeDasharray="4 2" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Member events (join/leave) */}
-      {(hasMemberEvents || isPeriodLoading) && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Member events</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPeriodLoading ? (
-              <Skeleton className="h-40 w-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={periodData!.memberEvents} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v: string) => v.slice(5)}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip labelFormatter={(v) => `Date: ${v}`} />
-                  <Legend />
-                  <Bar dataKey="joined" fill={chartColors()[3]} radius={[2, 2, 0, 0]} stackId="events" />
-                  <Bar dataKey="left" fill={chartColors()[2]} radius={[2, 2, 0, 0]} stackId="events" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Top Users + Message Types side by side */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t('stats.top_users')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPeriodLoading ? (
-              <Skeleton className="h-48 w-full" />
-            ) : (data?.topUsers.length ?? 0) === 0 ? (
-              <div className="text-sm text-muted-foreground">No data</div>
+          {/* KPIs */}
+          <div className="grid grid-cols-3 gap-2">
+            {isLoading ? (
+              Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={Math.max(180, (data?.topUsers.length ?? 0) * 28)}>
-                  <BarChart
-                    data={data!.topUsers.map((u) => ({ name: userLabel(u), count: u.count, userId: u.user_id }))}
-                    layout="vertical"
-                    margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
-                    onClick={(state) => {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const payload = (state as any)?.activePayload?.[0]?.payload
-                      if (payload?.userId) {
-                        navigate(`/stats/${numericChatId}/user/${payload.userId}?group=${encodeURIComponent(groupTitle)}`)
-                      }
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border" />
-                    <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                    <YAxis type="category" dataKey="name" width={yAxisWidth(data!.topUsers.map(userLabel))} tick={{ fontSize: 10 }} />
-                    <Tooltip formatter={(v) => [v, 'Messages']} />
-                    <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                      {data!.topUsers.map((_, i) => (
-                        <Cell key={i} fill={chartColors()[i % chartColors().length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <p className="mt-1 text-xs text-muted-foreground text-center">Click a bar to view user details</p>
+                <StatCard label={t('stats.total_messages')} value={data.overview.total_messages} icon={<MessageSquare className="h-3.5 w-3.5" />} />
+                <StatCard label={t('stats.unique_users')} value={data.overview.unique_users} icon={<UsersIcon className="h-3.5 w-3.5" />} />
+                <StatCard label="Since" value={formatDate(data.overview.first_date)} icon={<Calendar className="h-3.5 w-3.5" />} />
+                <StatCard label="Avg / day" value={avgPerDay} />
+                <StatCard label="Peak hour" value={peakHour} />
+                <StatCard label="Peak day" value={peakDay} />
               </>
             )}
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t('stats.message_types')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPeriodLoading ? (
-              <Skeleton className="h-48 w-full" />
-            ) : typesWithPercent.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No data</div>
-            ) : (
-              <div className="space-y-3">
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={typesWithPercent}
-                      dataKey="count"
-                      nameKey="type"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={35}
-                      outerRadius={70}
-                      paddingAngle={1}
-                      label={false}
-                    >
-                      {typesWithPercent.map((_, i) => (
-                        <Cell key={i} fill={chartColors()[i % chartColors().length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v, name) => [Number(v).toLocaleString(), name]} />
-                  </PieChart>
+          {/* Daily activity chart */}
+          <Card>
+            <CardHeader className="px-4 py-3">
+              <CardTitle className="text-sm font-medium">{t('stats.message_history')}</CardTitle>
+            </CardHeader>
+            <CardContent className="px-2 pb-3">
+              {isPeriodLoading ? (
+                <Skeleton className="h-44 w-full" />
+              ) : (periodData?.daily.length ?? 0) === 0 ? (
+                <div className="flex h-44 items-center justify-center text-sm text-muted-foreground">No data</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={periodData!.daily} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                    <Tooltip labelFormatter={(v) => `Date: ${v}`} formatter={(v, name) => [v, name === 'messages' ? 'Messages' : 'Active users']} />
+                    <Legend formatter={(v) => v === 'messages' ? 'Messages' : 'Active users'} wrapperStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="messages" stroke={chartColors()[0]} dot={false} strokeWidth={2} />
+                    <Line type="monotone" dataKey="dau" stroke={chartColors()[3]} dot={false} strokeWidth={1.5} strokeDasharray="4 2" />
+                  </LineChart>
                 </ResponsiveContainer>
-                <div className="space-y-1">
-                  {typesWithPercent.map((item, i) => (
-                    <div key={item.type} className="flex items-center gap-2 text-xs">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-sm flex-shrink-0"
-                        style={{ backgroundColor: chartColors()[i % chartColors().length] }}
-                      />
-                      <span className="text-muted-foreground flex-1 truncate">{item.type}</span>
-                      <span className="tabular-nums font-medium">{Number(item.count).toLocaleString()}</span>
-                      <span className="tabular-nums text-muted-foreground w-10 text-right">{item.percent}%</span>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Member events */}
+          {(hasMemberEvents || isPeriodLoading) && (
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">Member events</CardTitle>
+              </CardHeader>
+              <CardContent className="px-2 pb-3">
+                {isPeriodLoading ? (
+                  <Skeleton className="h-36 w-full" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart data={periodData!.memberEvents} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                      <Tooltip labelFormatter={(v) => `Date: ${v}`} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="joined" fill={chartColors()[3]} radius={[2, 2, 0, 0]} stackId="e" />
+                      <Bar dataKey="left" fill={chartColors()[2]} radius={[2, 2, 0, 0]} stackId="e" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Top users + Message types */}
+          <div className="grid gap-3 md:grid-cols-5">
+            <Card className="md:col-span-3">
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">{t('stats.top_users')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                {isPeriodLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <Skeleton className="size-7 rounded-full shrink-0" />
+                        <Skeleton className="h-3.5 flex-1" />
+                        <Skeleton className="h-3.5 w-10" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (data?.topUsers.length ?? 0) === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No data</p>
+                ) : (
+                  <div className="space-y-1">
+                    {data!.topUsers.map((u, i) => {
+                      const max = data!.topUsers[0]?.count ?? 1
+                      const pct = max > 0 ? (u.count / max) * 100 : 0
+                      return (
+                        <div
+                          key={u.user_id}
+                          className="flex items-center gap-2.5 py-1.5 cursor-pointer rounded-md px-1 -mx-1 hover:bg-muted/50 transition-colors"
+                          onClick={() => navigate(`/stats/${numericChatId}/user/${u.user_id}?group=${encodeURIComponent(groupTitle)}`)}
+                        >
+                          <Avatar className="size-7 shrink-0">
+                            <AvatarImage src={userPhotoUrl(u)} />
+                            <AvatarFallback
+                              className="text-[10px] font-bold"
+                              style={{ backgroundColor: `${chartColors()[i % chartColors().length]}20`, color: chartColors()[i % chartColors().length] }}
+                            >
+                              {userInitials(u)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium truncate">{userLabel(u)}</span>
+                              <span className="text-xs tabular-nums text-muted-foreground shrink-0">{u.count.toLocaleString()}</span>
+                            </div>
+                            <div className="h-1 rounded-full bg-muted mt-1">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${pct}%`, backgroundColor: chartColors()[i % chartColors().length] }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="md:col-span-2">
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">{t('stats.message_types')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                {isPeriodLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : typesWithPercent.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No data</p>
+                ) : (
+                  <div className="space-y-3">
+                    <ResponsiveContainer width="100%" height={130}>
+                      <PieChart>
+                        <Pie
+                          data={typesWithPercent}
+                          dataKey="count"
+                          nameKey="type"
+                          cx="50%" cy="50%"
+                          innerRadius={30} outerRadius={55}
+                          paddingAngle={1} label={false}
+                        >
+                          {typesWithPercent.map((_, i) => (
+                            <Cell key={i} fill={chartColors()[i % chartColors().length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v, name) => [Number(v).toLocaleString(), name]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="space-y-1">
+                      {typesWithPercent.map((item, i) => (
+                        <div key={item.type} className="flex items-center gap-2 text-xs">
+                          <span className="inline-block h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: chartColors()[i % chartColors().length] }} />
+                          <span className="text-muted-foreground flex-1 truncate">{item.type}</span>
+                          <span className="tabular-nums font-medium">{Number(item.count).toLocaleString()}</span>
+                          <span className="tabular-nums text-muted-foreground w-9 text-right">{item.percent}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Activity by Hour & Day */}
+          <div className="grid gap-3 md:grid-cols-2">
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">{t('stats.activity_by_hour')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-2 pb-3">
+                {isPeriodLoading ? (
+                  <Skeleton className="h-36 w-full" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart data={hourData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="hour" tick={{ fontSize: 8 }} interval={3} />
+                      <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                      <Tooltip formatter={(v) => [v, 'Messages']} />
+                      <Bar dataKey="count" fill={chartColors()[1]} radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">{t('stats.activity_by_day')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-2 pb-3">
+                {isPeriodLoading ? (
+                  <Skeleton className="h-36 w-full" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart data={dayData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="day" tick={{ fontSize: 9 }} />
+                      <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                      <Tooltip formatter={(v) => [v, 'Messages']} />
+                      <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                        {dayData.map((_, i) => (
+                          <Cell key={i} fill={chartColors()[i % chartColors().length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Monthly activity */}
+          {(!isPeriodLoading && (data?.byMonth.length ?? 0) > 0) && (
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">{t('stats.activity_by_month')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-2 pb-3">
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart
+                    data={data!.byMonth.map((m) => ({ month: formatMonthLabel(m.month), count: m.count }))}
+                    margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="month" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                    <Tooltip formatter={(v) => [v, 'Messages']} />
+                    <Bar dataKey="count" fill={chartColors()[2]} radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Words + Mentions */}
+          <div className="grid gap-3 md:grid-cols-2">
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">{t('stats.top_words')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                {isPeriodLoading ? (
+                  <Skeleton className="h-48 w-full" />
+                ) : (
+                  <RankedList items={data?.words ?? []} labelKey="word" valueKey="count" limit={15} />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">{t('stats.top_mentions')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                {isPeriodLoading ? (
+                  <Skeleton className="h-48 w-full" />
+                ) : (
+                  <RankedList items={data?.mentions ?? []} labelKey="mention" valueKey="count" limit={15} />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Response time */}
+          {!isPeriodLoading && data?.responseTime && data.responseTime.total_replies > 0 && (
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    Response time
+                  </CardTitle>
+                  <div className="flex gap-3 text-xs text-muted-foreground">
+                    <span>avg <span className="font-medium text-foreground">{data.responseTime.overall_avg}</span></span>
+                    <span>median <span className="font-medium text-foreground">{data.responseTime.overall_median}</span></span>
+                    <span className="tabular-nums">{data.responseTime.total_replies.toLocaleString()} replies</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <div className="divide-y divide-border rounded-md border">
+                  {data.responseTime.users.map((u) => (
+                    <div key={u.user_id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      <span className="font-medium truncate flex-1">{u.display_name ?? u.username ?? String(u.user_id)}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{u.reply_count} replies</span>
+                      <span className="text-xs tabular-nums w-12 text-right">{u.median}</span>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Activity by Hour & Day */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t('stats.activity_by_hour')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPeriodLoading ? (
-              <Skeleton className="h-44 w-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={hourData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="hour" tick={{ fontSize: 9 }} interval={3} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip formatter={(v) => [v, 'Messages']} />
-                  <Bar dataKey="count" fill={chartColors()[1]} radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t('stats.activity_by_day')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPeriodLoading ? (
-              <Skeleton className="h-44 w-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={dayData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="day" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip formatter={(v) => [v, 'Messages']} />
-                  <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                    {dayData.map((_, i) => (
-                      <Cell key={i} fill={chartColors()[i % chartColors().length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Activity by Month */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">{t('stats.activity_by_month')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isPeriodLoading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : (data?.byMonth.length ?? 0) === 0 ? (
-            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">No data</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart
-                data={data!.byMonth.map((m) => ({ month: formatMonthLabel(m.month), count: m.count }))}
-                margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip formatter={(v) => [v, 'Messages']} />
-                <Bar dataKey="count" fill={chartColors()[2]} radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Words + Mentions side by side */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t('stats.top_words')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPeriodLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (data?.words.length ?? 0) === 0 ? (
-              <div className="text-sm text-muted-foreground">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={Math.max(220, (data?.words.length ?? 0) * 22)}>
-                <BarChart
-                  data={data!.words}
-                  layout="vertical"
-                  margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border" />
-                  <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <YAxis type="category" dataKey="word" width={yAxisWidth(data!.words.map((w) => w.word))} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(v) => [v, 'Occurrences']} />
-                  <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                    {data!.words.map((_, i) => (
-                      <Cell key={i} fill={chartColors()[i % chartColors().length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+          {/* Avg message length */}
+          {!isPeriodLoading && (data?.avgLength.length ?? 0) > 0 && (
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Type className="h-3.5 w-3.5 text-muted-foreground" />
+                  Message length by user
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <div className="divide-y divide-border rounded-md border">
+                  {data!.avgLength.map((u) => (
+                    <div key={u.user_id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      <span className="font-medium truncate flex-1">{u.display_name ?? u.username ?? String(u.user_id)}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{u.total.toLocaleString()} msgs</span>
+                      <span className="text-xs tabular-nums">avg <span className="font-medium">{u.avg_len}</span></span>
+                      <span className="text-xs tabular-nums text-muted-foreground">max {u.max_len}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t('stats.top_mentions')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPeriodLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (data?.mentions.length ?? 0) === 0 ? (
-              <div className="text-sm text-muted-foreground">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={Math.max(220, (data?.mentions.length ?? 0) * 22)}>
-                <BarChart
-                  data={data!.mentions}
-                  layout="vertical"
-                  margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border" />
-                  <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <YAxis type="category" dataKey="mention" width={yAxisWidth(data!.mentions.map((m) => m.mention))} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(v) => [v, 'Mentions']} />
-                  <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                    {data!.mentions.map((_, i) => (
-                      <Cell key={i} fill={chartColors()[i % chartColors().length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-        </div>
+          {/* Media vs Text trend */}
+          {!isPeriodLoading && (data?.mediaTrend.length ?? 0) > 1 && (
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <CardTitle className="text-sm font-medium">Media vs Text trend</CardTitle>
+              </CardHeader>
+              <CardContent className="px-2 pb-3">
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart
+                    data={data!.mediaTrend.map((m) => ({ month: formatMonthLabel(m.month), text: m.text, media: m.media }))}
+                    margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="month" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Area type="monotone" dataKey="text" stackId="1" stroke={chartColors()[0]} fill={chartColors()[0]} fillOpacity={0.4} />
+                    <Area type="monotone" dataKey="media" stackId="1" stroke={chartColors()[4]} fill={chartColors()[4]} fillOpacity={0.4} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="import" className="mt-4">

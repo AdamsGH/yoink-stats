@@ -229,7 +229,8 @@ async def stats_top_users(
             m.from_user,
             COUNT(m.id) AS cnt,
             COALESCE(un.username, u.username) AS username,
-            COALESCE(un.display_name, u.first_name) AS display_name
+            COALESCE(un.display_name, u.first_name) AS display_name,
+            u.photo_url
         FROM stats_messages m
         LEFT JOIN LATERAL (
             SELECT username, display_name
@@ -242,7 +243,7 @@ async def stats_top_users(
         WHERE m.chat_id = :chat_id
           AND m.from_user IS NOT NULL
           {date_filter}
-        GROUP BY m.from_user, un.username, un.display_name, u.username, u.first_name
+        GROUP BY m.from_user, un.username, un.display_name, u.username, u.first_name, u.photo_url
         ORDER BY cnt DESC
         LIMIT :limit
     """), params)).fetchall()
@@ -253,6 +254,7 @@ async def stats_top_users(
             "username": row.username,
             "display_name": row.display_name,
             "count": row.cnt,
+            "has_photo": row.photo_url is not None,
         }
         for row in rows
     ]
@@ -747,6 +749,197 @@ async def stats_member_events(
 
     return [
         {"date": str(row.day), "joined": int(row.joined), "left": int(row.left_count)}
+        for row in rows
+    ]
+
+
+@router.get("/avg-message-length", summary="Average message length by top users")
+async def stats_avg_message_length(
+    request: Request,
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
+    limit: int = Query(10, ge=1, le=50),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+) -> list[dict]:
+    """Average text length per user (top N by message count)."""
+    await _check_group_access(chat_id, session, current_user, request)
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id, "limit": limit}
+    date_filter = "AND m.date >= :since" if since else ""
+    if since:
+        params["since"] = since
+
+    rows = (await session.execute(text(f"""
+        SELECT
+            m.from_user AS user_id,
+            COALESCE(un.display_name, u.first_name) AS display_name,
+            COALESCE(un.username, u.username) AS username,
+            COUNT(*) AS total,
+            ROUND(AVG(LENGTH(COALESCE(m.text, m.caption, '')))) AS avg_len,
+            MAX(LENGTH(COALESCE(m.text, m.caption, ''))) AS max_len
+        FROM stats_messages m
+        LEFT JOIN LATERAL (
+            SELECT username, display_name
+            FROM stats_user_names
+            WHERE user_id = m.from_user ORDER BY date DESC LIMIT 1
+        ) un ON TRUE
+        LEFT JOIN users u ON u.id = m.from_user
+        WHERE m.chat_id = :chat_id AND m.from_user IS NOT NULL
+          AND COALESCE(m.text, m.caption) IS NOT NULL
+          {date_filter}
+        GROUP BY m.from_user, un.display_name, un.username, u.first_name, u.username
+        ORDER BY total DESC
+        LIMIT :limit
+    """), params)).fetchall()
+
+    return [
+        {
+            "user_id": row.user_id,
+            "display_name": row.display_name,
+            "username": row.username,
+            "total": int(row.total),
+            "avg_len": int(row.avg_len),
+            "max_len": int(row.max_len),
+        }
+        for row in rows
+    ]
+
+
+@router.get("/response-time", summary="Median reply time between users")
+async def stats_response_time(
+    request: Request,
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
+    limit: int = Query(10, ge=1, le=50),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+) -> dict:
+    """Median and average response time, plus per-user breakdown."""
+    await _check_group_access(chat_id, session, current_user, request)
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id, "limit": limit}
+    date_filter = "AND r.date >= :since" if since else ""
+    if since:
+        params["since"] = since
+
+    rows = (await session.execute(text(f"""
+        WITH replies AS (
+            SELECT
+                r.from_user,
+                EXTRACT(EPOCH FROM (r.date - o.date)) AS delay_sec
+            FROM stats_messages r
+            JOIN stats_messages o
+                ON o.chat_id = r.chat_id AND o.message_id = r.reply_to_message
+            WHERE r.chat_id = :chat_id
+              AND r.reply_to_message IS NOT NULL
+              AND r.from_user IS NOT NULL
+              AND r.from_user != o.from_user
+              AND EXTRACT(EPOCH FROM (r.date - o.date)) BETWEEN 1 AND 86400
+              {date_filter}
+        )
+        SELECT
+            rp.from_user AS user_id,
+            COALESCE(un.display_name, u.first_name) AS display_name,
+            COALESCE(un.username, u.username) AS username,
+            COUNT(*) AS reply_count,
+            ROUND(AVG(rp.delay_sec)) AS avg_sec,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY rp.delay_sec) AS median_sec
+        FROM replies rp
+        LEFT JOIN LATERAL (
+            SELECT username, display_name
+            FROM stats_user_names
+            WHERE user_id = rp.from_user ORDER BY date DESC LIMIT 1
+        ) un ON TRUE
+        LEFT JOIN users u ON u.id = rp.from_user
+        GROUP BY rp.from_user, un.display_name, un.username, u.first_name, u.username
+        ORDER BY reply_count DESC
+        LIMIT :limit
+    """), params)).fetchall()
+
+    overall = (await session.execute(text(f"""
+        SELECT
+            ROUND(AVG(delay)) AS avg_sec,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delay) AS median_sec,
+            COUNT(*) AS total_replies
+        FROM (
+            SELECT EXTRACT(EPOCH FROM (r.date - o.date)) AS delay
+            FROM stats_messages r
+            JOIN stats_messages o
+                ON o.chat_id = r.chat_id AND o.message_id = r.reply_to_message
+            WHERE r.chat_id = :chat_id
+              AND r.reply_to_message IS NOT NULL
+              AND r.from_user IS NOT NULL
+              AND r.from_user != COALESCE(o.from_user, 0)
+              AND EXTRACT(EPOCH FROM (r.date - o.date)) BETWEEN 1 AND 86400
+              {"AND r.date >= :since" if since else ""}
+        ) sub
+    """), {"chat_id": chat_id, **({"since": since} if since else {})})).fetchone()
+
+    def fmt(sec: float | None) -> str:
+        if sec is None:
+            return "-"
+        sec = int(sec)
+        if sec < 60:
+            return f"{sec}s"
+        if sec < 3600:
+            return f"{sec // 60}m"
+        return f"{sec // 3600}h {(sec % 3600) // 60}m"
+
+    return {
+        "overall_avg": fmt(overall.avg_sec) if overall else "-",
+        "overall_median": fmt(overall.median_sec) if overall else "-",
+        "total_replies": int(overall.total_replies) if overall else 0,
+        "users": [
+            {
+                "user_id": row.user_id,
+                "display_name": row.display_name,
+                "username": row.username,
+                "reply_count": int(row.reply_count),
+                "avg": fmt(row.avg_sec),
+                "median": fmt(row.median_sec),
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/media-trend", summary="Media vs text ratio over months")
+async def stats_media_trend(
+    request: Request,
+    chat_id: ChatIdQuery,
+    days: DaysQuery = None,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+) -> list[dict]:
+    """Monthly breakdown of text vs media (photo/video/document/sticker/etc) messages."""
+    await _check_group_access(chat_id, session, current_user, request)
+    since = _since_param(days)
+    params: dict = {"chat_id": chat_id}
+    date_filter = "AND date >= :since" if since else ""
+    if since:
+        params["since"] = since
+
+    rows = (await session.execute(text(f"""
+        SELECT
+            TO_CHAR(date AT TIME ZONE 'UTC', 'YYYY-MM') AS month,
+            COUNT(*) FILTER (WHERE msg_type = 'text') AS text_count,
+            COUNT(*) FILTER (WHERE msg_type != 'text') AS media_count,
+            COUNT(*) AS total
+        FROM stats_messages
+        WHERE chat_id = :chat_id AND from_user IS NOT NULL {date_filter}
+        GROUP BY month
+        ORDER BY month
+    """), params)).fetchall()
+
+    return [
+        {
+            "month": row.month,
+            "text": int(row.text_count),
+            "media": int(row.media_count),
+            "total": int(row.total),
+            "media_pct": round(int(row.media_count) / int(row.total) * 100, 1) if int(row.total) > 0 else 0,
+        }
         for row in rows
     ]
 
