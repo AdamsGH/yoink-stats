@@ -713,23 +713,32 @@ export default function StatsGroupPage() {
 
         <TabsContent value="stats" className="space-y-4 mt-4">
           {/* KPIs */}
-          <div className="grid grid-cols-3 gap-2">
-            {isLoading ? (
-              Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
-            ) : (
-              <>
+          {isLoading ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                {Array.from({ length: 3 }).map((_, i) => <StatCardSkeleton key={i} />)}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
                 <StatCard label={t('stats.total_messages')} value={data.overview.total_messages} icon={<MessageSquare className="h-3.5 w-3.5" />} />
                 <StatCard label={t('stats.unique_users')} value={data.overview.unique_users} icon={<UsersIcon className="h-3.5 w-3.5" />} />
                 <StatCard label="Since" value={formatDate(data.overview.first_date)} icon={<Calendar className="h-3.5 w-3.5" />} />
-                <StatCard label="Avg / day" value={avgPerDay} />
-                <StatCard label="Peak hour" value={peakHour} />
-                <StatCard label="Peak day" value={peakDay} />
+              </div>
+              <div className={`grid gap-2 ${isAdmin && data.overview.total_reactions > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                <StatCard label="Avg / day" value={avgPerDay} compact />
+                <StatCard label="Peak hour" value={peakHour} compact />
+                <StatCard label="Peak day" value={peakDay} compact />
                 {isAdmin && data.overview.total_reactions > 0 && (
-                  <StatCard label="Reactions" value={data.overview.total_reactions} />
+                  <StatCard label="Reactions" value={data.overview.total_reactions} compact />
                 )}
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
 
           {/* Daily activity chart */}
           <Card>
