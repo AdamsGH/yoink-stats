@@ -417,7 +417,11 @@ function MembersTab({
               </button>
               {members && (
                 <p className="text-xs text-muted-foreground pl-1">
-                  {filtered.length}/{members.length}
+                  {filtered.length}/{
+                    chatFilter === 'in_chat' ? members.filter(m => m.in_chat === true).length
+                    : chatFilter === 'left'  ? members.filter(m => m.in_chat === false).length
+                    : members.length
+                  }
                   {!sessionAvailable && <span className="ml-1 opacity-60">·&nbsp;senders</span>}
                 </p>
               )}
