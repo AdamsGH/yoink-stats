@@ -22,6 +22,11 @@ _SQL_MEMBERS = load_sql(_Q, "members")
 _SQL_CHAT_ADMINS_PRUNE = load_sql(_Q, "chat_admins_prune")
 _SQL_SENDERS_DISTINCT = load_sql(_Q, "senders_distinct")
 
+# Hard cap for the /members listing - keeps the response bounded and the LATERAL
+# window joins cheap. Both call sites pass this value verbatim; bump it here
+# (and in members.sql's :limit binding contract) if a chat genuinely needs more.
+_MEMBERS_LIMIT = 1000
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stats"])
@@ -118,7 +123,9 @@ async def stats_members(
 
     since = _since_param(days)
     cutoff = since or (datetime.now(timezone.utc) - timedelta(days=90))
-    rows = (await session.execute(text(_SQL_MEMBERS), date_params(since, chat_id=chat_id))).fetchall()
+    rows = (await session.execute(
+        text(_SQL_MEMBERS), date_params(since, chat_id=chat_id, limit=_MEMBERS_LIMIT),
+    )).fetchall()
     return [_member_row_to_dict(row, cutoff) for row in rows]
 
 
@@ -226,5 +233,7 @@ async def stats_members_sync(
     await session.commit()
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-    rows = (await session.execute(text(_SQL_MEMBERS), date_params(None, chat_id=chat_id))).fetchall()
+    rows = (await session.execute(
+        text(_SQL_MEMBERS), date_params(None, chat_id=chat_id, limit=_MEMBERS_LIMIT),
+    )).fetchall()
     return [_member_row_to_dict(row, cutoff) for row in rows]

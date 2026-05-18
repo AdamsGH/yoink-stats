@@ -38,4 +38,4 @@ LEFT JOIN LATERAL (
 LEFT JOIN stats_group_members gm
     ON gm.chat_id = :chat_id AND gm.user_id = all_users.user_id
 ORDER BY last_active_at DESC
-LIMIT 1000
+LIMIT :limit

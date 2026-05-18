@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from telegram import Message, Update, ReactionTypeEmoji, ReactionTypeCustomEmoji
 from telegram.ext import Application, ContextTypes, MessageHandler, MessageReactionHandler, filters
 
+from yoink.core.metrics import metrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,8 +151,9 @@ async def log_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     kwargs = _message_to_kwargs(msg)
     try:
         await msg_repo.log_message(**kwargs)
-    except Exception as exc:
-        logger.warning("Failed to log message %d in %d: %s", msg.message_id, chat.id, exc)
+    except Exception:
+        metrics.inc("stats_collector_dropped_messages")
+        logger.exception("Failed to log message %d in %d", msg.message_id, chat.id)
         return
 
     if msg.from_user and name_repo is not None:
@@ -221,8 +224,9 @@ async def log_edited(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     try:
         await msg_repo.update_message(chat.id, msg.message_id, **updates)
-    except Exception as exc:
-        logger.warning("Failed to update edited message %d in %d: %s", msg.message_id, chat.id, exc)
+    except Exception:
+        metrics.inc("stats_collector_dropped_edits")
+        logger.exception("Failed to update edited message %d in %d", msg.message_id, chat.id)
 
 
 def _reaction_key(reaction) -> tuple[str, str] | None:

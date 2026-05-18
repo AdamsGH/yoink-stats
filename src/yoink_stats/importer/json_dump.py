@@ -218,7 +218,7 @@ async def import_json(
     Skips messages already present (by message_id + chat_id).
     Returns {"inserted": N, "skipped": M, "events": K}.
     """
-    from sqlalchemy import select, text
+    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
     from yoink_stats.storage.models import ChatMessage, UserEvent
 
@@ -273,25 +273,38 @@ async def import_json(
     logger.info("Inserting %d messages, %d events", len(to_insert), len(to_insert_events))
 
     inserted = 0
+    failed_batches = 0
     total = len(to_insert)
-    async with session_factory() as session:
-        for i in range(0, total, batch_size):
-            batch = to_insert[i : i + batch_size]
-            session.add_all([ChatMessage(**kw) for kw in batch])
-            await session.commit()
-            inserted += len(batch)
-            logger.info("  inserted %d / %d", inserted, total)
-            if progress_cb:
-                progress_cb(inserted, total)
+    for i in range(0, total, batch_size):
+        batch = to_insert[i : i + batch_size]
+        async with session_factory() as session:
+            try:
+                session.add_all([ChatMessage(**kw) for kw in batch])
+                await session.commit()
+                inserted += len(batch)
+            except Exception:
+                await session.rollback()
+                failed_batches += 1
+                logger.exception("Message batch %d-%d failed; rolled back, continuing", i, i + len(batch))
+                continue
+        logger.info("  inserted %d / %d", inserted, total)
+        if progress_cb:
+            progress_cb(inserted, total)
 
     events_inserted = 0
     if to_insert_events:
-        async with session_factory() as session:
-            for i in range(0, len(to_insert_events), batch_size):
-                batch = to_insert_events[i : i + batch_size]
-                session.add_all([UserEvent(**kw) for kw in batch])
-                await session.commit()
-                events_inserted += len(batch)
+        for i in range(0, len(to_insert_events), batch_size):
+            batch = to_insert_events[i : i + batch_size]
+            async with session_factory() as session:
+                try:
+                    session.add_all([UserEvent(**kw) for kw in batch])
+                    await session.commit()
+                    events_inserted += len(batch)
+                except Exception:
+                    await session.rollback()
+                    failed_batches += 1
+                    logger.exception("Event batch %d-%d failed; rolled back, continuing", i, i + len(batch))
+                    continue
 
     if user_names:
         from yoink_stats.storage.models import UserNameHistory
@@ -317,7 +330,12 @@ async def import_json(
                 logger.info("Saved %d user display names from import", len(new_names))
 
     await engine.dispose()
-    return {"inserted": inserted, "skipped": skipped, "events": events_inserted}
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "events": events_inserted,
+        "failed_batches": failed_batches,
+    }
 
 
 def main() -> None:
