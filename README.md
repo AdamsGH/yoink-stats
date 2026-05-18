@@ -76,7 +76,9 @@ Interactive dashboard at `/stats` in the Telegram WebApp:
 
 | Variable | Default | Description |
 |---|---|---|
+| `stats_max_messages` | `0` | Hard cap on messages stored per group (0 = unlimited) |
 | `stats_refresh_interval` | `3600` | Username refresh job interval, seconds |
+| `stats_charts_enabled` | `true` | Toggle chart endpoints (off = analytics tables only) |
 
 ## Package structure
 
@@ -107,7 +109,9 @@ src/yoink_stats/
     user_stats_reactions.sql
     user_stats_top_type.sql
     user_latest_name.sql
-    members.sql
+    members.sql                 # accepts `:limit` bind param (was hardcoded LIMIT 1000)
+    chat_admins_prune.sql       # DELETE block, used by /members/sync
+    senders_distinct.sql        # SELECT DISTINCT for member backfill
   api/
     router.py            # thin FastAPI router (mounts sub-routers)
     routers/
