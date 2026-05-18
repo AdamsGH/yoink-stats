@@ -91,9 +91,9 @@ async def stats_overview(
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> dict:
-    """Summary stats: total messages, unique users, date range."""
+    """Summary stats: total messages, unique users, reactions, date range."""
     await _check_group_access(chat_id, session, current_user, request)
-    from yoink_stats.storage.models import ChatMessage  # noqa: PLC0415
+    from yoink_stats.storage.models import ChatMessage, Reaction  # noqa: PLC0415
 
     since = _since_param(days)
     q = select(
@@ -105,8 +105,23 @@ async def stats_overview(
     if since:
         q = q.where(ChatMessage.date >= since)
     row = (await session.execute(q)).fetchone()
+
+    rq = select(func.count(Reaction.id).label("total_reactions")).where(Reaction.chat_id == chat_id)
+    if since:
+        rq = rq.where(Reaction.date >= since)
+    reaction_row = (await session.execute(rq)).fetchone()
+    total_reactions = int(reaction_row.total_reactions) if reaction_row else 0
+
     if not row:
-        return {"total": 0, "unique_users": 0, "first_date": None, "last_date": None, "avg_per_day": 0.0}
+        return {
+            "chat_id": chat_id,
+            "total_messages": 0,
+            "unique_users": 0,
+            "total_reactions": total_reactions,
+            "first_date": None,
+            "last_date": None,
+            "avg_per_day": 0.0,
+        }
 
     total = row.total or 0
     first_date: datetime | None = row.first_date
@@ -117,8 +132,10 @@ async def stats_overview(
     else:
         avg = 0.0
     return {
-        "total": total,
+        "chat_id": chat_id,
+        "total_messages": total,
         "unique_users": row.unique_users or 0,
+        "total_reactions": total_reactions,
         "first_date": first_date.isoformat() if first_date else None,
         "last_date": last_date.isoformat() if last_date else None,
         "avg_per_day": avg,
