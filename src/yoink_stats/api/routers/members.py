@@ -19,6 +19,8 @@ from yoink_stats.storage.models import ChatAdmin
 
 _Q = Path(__file__).parent.parent.parent / "queries"
 _SQL_MEMBERS = load_sql(_Q, "members")
+_SQL_CHAT_ADMINS_PRUNE = load_sql(_Q, "chat_admins_prune")
+_SQL_SENDERS_DISTINCT = load_sql(_Q, "senders_distinct")
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +70,7 @@ async def _sync_chat_admins(bot, chat_id: int, session: AsyncSession) -> None:
             synced_ids.append(member.user.id)
         if synced_ids:
             await session.execute(
-                text("DELETE FROM stats_chat_admins WHERE chat_id = :chat_id AND user_id NOT IN :ids")
-                .bindparams(chat_id=chat_id, ids=tuple(synced_ids))
+                text(_SQL_CHAT_ADMINS_PRUNE), {"chat_id": chat_id, "ids": tuple(synced_ids)}
             )
         await session.commit()
     except Exception:
@@ -207,7 +208,7 @@ async def stats_members_sync(
         await session.execute(stmt)
 
     all_senders = (await session.execute(
-        text("SELECT DISTINCT from_user FROM stats_messages WHERE chat_id = :chat_id AND from_user IS NOT NULL"),
+        text(_SQL_SENDERS_DISTINCT),
         {"chat_id": chat_id},
     )).scalars().all()
 
