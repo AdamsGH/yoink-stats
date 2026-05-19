@@ -5,35 +5,13 @@ import {
   Mic2, BarChart3, FileText, MessageCircle,
   CalendarDays, Clock, Hash,
 } from 'lucide-react'
-import {
-  Bar, BarChart, CartesianGrid,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts'
-
 import { meApi, type DlOverview, type InsightStats, type MusicStats } from '@stats/api/me'
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@ui'
+import { Card, CardContent, CardHeader, CardTitle } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
-import { chartColors, StatCard, StatCardSkeleton } from '@core/components/charts'
+import { chartColors, ChartSkeleton, HorizontalBars, MiniBarChart, SectionSkeleton, StatCard, StatCardSkeleton } from '@core/components/charts'
 
 
-
-// reusable components
-
-function ChartSkeleton({ height = 120 }: { height?: number }) {
-  return <Skeleton className="w-full rounded-md" style={{ height }} />
-}
-
-function SectionSkeleton({ stats = 3, chart = true }: { stats?: number; chart?: boolean }) {
-  return (
-    <div className="space-y-4">
-      <div className={`grid grid-cols-${stats} gap-2`}>
-        {Array.from({ length: stats }).map((_, i) => <StatCardSkeleton key={i} />)}
-      </div>
-      {chart && <ChartSkeleton />}
-    </div>
-  )
-}
 
 function EmptyState({ text }: { text: string }) {
   return <p className="text-sm text-muted-foreground py-4 text-center">{text}</p>
@@ -42,62 +20,6 @@ function EmptyState({ text }: { text: string }) {
 function formatDayLabel(date: string) {
   const d = new Date(date)
   return `${d.getMonth() + 1}/${d.getDate()}`
-}
-
-function MiniBarChart({ data, dataKey = 'count', color, height = 120 }: {
-  data: Array<Record<string, unknown>>
-  dataKey?: string
-  color: string
-  height?: number
-}) {
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 2, right: 2, left: -28, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
-        <XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
-        <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
-        <Tooltip
-          contentStyle={{ fontSize: 12, borderRadius: 8 }}
-          formatter={(v) => [v, '']}
-        />
-        <Bar dataKey={dataKey} fill={color} radius={[3, 3, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  )
-}
-
-function HorizontalBars({ data, nameKey, valueKey, colors }: {
-  data: Array<Record<string, unknown>>
-  nameKey: string
-  valueKey: string
-  colors: string[]
-}) {
-  if (!data.length) return null
-  const max = Math.max(...data.map(d => Number(d[valueKey])))
-  return (
-    <div className="space-y-1.5">
-      {data.map((d, i) => {
-        const pct = Math.round((Number(d[valueKey]) / max) * 100)
-        return (
-          <div key={String(d[nameKey])} className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground w-4 tabular-nums shrink-0">{i + 1}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between mb-0.5">
-                <span className="truncate">{String(d[nameKey])}</span>
-                <span className="tabular-nums font-medium ml-2 shrink-0">{Number(d[valueKey])}</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-muted-foreground/20">
-                <div
-                  className="h-1.5 rounded-full transition-all"
-                  style={{ width: `${pct}%`, backgroundColor: colors[i % colors.length] }}
-                />
-              </div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
