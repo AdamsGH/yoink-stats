@@ -6,6 +6,7 @@ import { BarChart3, ChevronRight, MessageSquare } from 'lucide-react'
 import { groupsApi } from '@core/lib/api'
 import { statsApi } from '@stats/api'
 import { Avatar, AvatarFallback, AvatarImage, Badge, Card, CardContent, CardHeader, CardTitle, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton } from '@ui'
+import { EmptyState } from '@app'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
 
@@ -57,9 +58,7 @@ export default function StatsIndexPage() {
               ))}
             </div>
           ) : groups.length === 0 ? (
-            <div className="flex justify-center py-12 text-sm text-muted-foreground">
-              {t('stats.no_groups')}
-            </div>
+            <EmptyState message={t('stats.no_groups')} />
           ) : (
             <div className="divide-y divide-border">
               {groups.map((group) => (
