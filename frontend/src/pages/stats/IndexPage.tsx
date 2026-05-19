@@ -5,7 +5,7 @@ import { BarChart3, ChevronRight, MessageSquare } from 'lucide-react'
 
 import { groupsApi } from '@core/lib/api'
 import { statsApi } from '@stats/api'
-import { Avatar, AvatarFallback, AvatarImage, Badge, Card, CardContent, CardHeader, CardTitle, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton } from '@ui'
+import { Avatar, AvatarFallback, AvatarImage, Badge, Card, CardContent, CardHeader, CardTitle, DividedList, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton, SkeletonList } from '@ui'
 import { EmptyState } from '@app'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
@@ -45,8 +45,8 @@ export default function StatsIndexPage() {
 
         <CardContent className="p-0">
           {loading ? (
-            <div className="divide-y divide-border px-3 py-1">
-              {Array.from({ length: 3 }).map((_, i) => (
+            <DividedList>
+              <SkeletonList count={3}>{(i) => (
                 <div key={i} className="flex items-center gap-3 py-2.5">
                   <Skeleton className="size-8 rounded-md shrink-0" />
                   <div className="flex-1 space-y-1.5">
@@ -55,12 +55,12 @@ export default function StatsIndexPage() {
                   </div>
                   <Skeleton className="h-5 w-14" />
                 </div>
-              ))}
-            </div>
+              )}</SkeletonList>
+            </DividedList>
           ) : groups.length === 0 ? (
             <EmptyState message={t('stats.no_groups')} />
           ) : (
-            <div className="divide-y divide-border">
+            <DividedList className="px-0">
               {groups.map((group) => (
                 <div key={group.chat_id} className="px-3 py-1">
                   <Item
@@ -91,7 +91,7 @@ export default function StatsIndexPage() {
                   </Item>
                 </div>
               ))}
-            </div>
+            </DividedList>
           )}
         </CardContent>
       </Card>
