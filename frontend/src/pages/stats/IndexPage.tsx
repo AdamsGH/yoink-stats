@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { BarChart3, ChevronRight, MessageSquare } from 'lucide-react'
 
+import { groupsApi } from '@core/lib/api'
 import { statsApi } from '@stats/api'
-import { Card, CardContent, CardHeader, CardTitle, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton } from '@ui'
+import { Avatar, AvatarFallback, AvatarImage, Badge, Card, CardContent, CardHeader, CardTitle, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
 
@@ -35,7 +36,9 @@ export default function StatsIndexPage() {
         <CardHeader className="px-4 py-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            {t('stats.select_group')}
+            {loading
+              ? t('stats.select_group')
+              : `${groups.length} ${groups.length === 1 ? t('stats.group_singular', { defaultValue: 'group' }) : t('stats.group_plural', { defaultValue: 'groups' })}`}
           </CardTitle>
         </CardHeader>
 
@@ -49,7 +52,7 @@ export default function StatsIndexPage() {
                     <Skeleton className="h-3.5 w-36" />
                     <Skeleton className="h-3 w-24" />
                   </div>
-                  <Skeleton className="h-4 w-4" />
+                  <Skeleton className="h-5 w-14" />
                 </div>
               ))}
             </div>
@@ -58,30 +61,36 @@ export default function StatsIndexPage() {
               {t('stats.no_groups')}
             </div>
           ) : (
-            <div className="divide-y divide-border px-3 py-1">
+            <div className="divide-y divide-border">
               {groups.map((group) => (
-                <Item
-                  key={group.chat_id}
-                  size="sm"
-                  className="py-2.5 rounded-none border-0 cursor-pointer"
-                  onClick={() => navigate(`/stats/${group.chat_id}`)}
-                >
-                  <ItemMedia
-                    variant="icon"
-                    className="size-8 rounded-md bg-primary/10 text-primary"
+                <div key={group.chat_id} className="px-3 py-1">
+                  <Item
+                    size="sm"
+                    className="py-2.5 rounded-none border-0 cursor-pointer"
+                    onClick={() => navigate(`/stats/${group.chat_id}`)}
                   >
-                    <MessageSquare className="size-4" />
-                  </ItemMedia>
-                  <ItemContent>
-                    <ItemTitle>{group.title}</ItemTitle>
-                    <ItemDescription>
-                      {t('stats.messages_count', { count: group.message_count })}
-                    </ItemDescription>
-                  </ItemContent>
-                  <ItemActions>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </ItemActions>
-                </Item>
+                    <ItemMedia variant="icon" className="size-8 shrink-0">
+                      <Avatar className="size-8 rounded-md">
+                        <AvatarImage src={groupsApi.photoUrl(group.chat_id)} className="rounded-md object-cover" />
+                        <AvatarFallback className="size-8 rounded-md bg-primary/10 text-primary">
+                          <MessageSquare className="size-4" />
+                        </AvatarFallback>
+                      </Avatar>
+                    </ItemMedia>
+                    <ItemContent className="gap-0">
+                      <ItemTitle className="leading-snug">{group.title}</ItemTitle>
+                      <ItemDescription className="mt-0 leading-snug text-[11px] font-mono">
+                        {group.message_count.toLocaleString()} {t('stats.messages_label', { defaultValue: 'messages' })}
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <Badge variant="secondary" className="text-xs tabular-nums">
+                        {group.message_count.toLocaleString()}
+                      </Badge>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
               ))}
             </div>
           )}
