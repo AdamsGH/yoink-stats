@@ -10,6 +10,18 @@ export interface DlOverview {
   [key: string]: unknown
 }
 
+export interface TldrStats {
+  total: number
+  this_week: number
+  today: number
+  by_alias: Array<{ alias: string; count: number }>
+  by_kind: { youtube: number; web: number }
+  by_day: Array<{ date: string; count: number; minutes_saved: number; by_alias: Record<string, number> }>
+  minutes_saved: number
+  video_minutes_saved: number
+  reading_minutes_saved: number
+}
+
 export interface InsightStats {
   total_summaries: number
   total?: number
@@ -17,6 +29,7 @@ export interface InsightStats {
   today: number
   by_command?: Record<string, number>
   by_day?: Array<{ date: string; count: number }>
+  tldr?: TldrStats
   [key: string]: unknown
 }
 
