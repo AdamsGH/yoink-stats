@@ -22,7 +22,6 @@ async def _handle_import_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Owner only
     config = context.bot_data.get("config")
     if not config or user.id != config.owner_id:
-        from yoink.core.db.models import User
         repo = context.bot_data.get("dl_user_repo") or context.bot_data.get("user_repo")
         if repo:
             u = await repo.get_or_create(user.id)

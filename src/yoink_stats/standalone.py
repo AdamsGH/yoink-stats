@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 
-from telegram import Update
 
 from yoink.core.config import CoreSettings
 from yoink.app import build_app

@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yoink_stats.analytics._base import bar as _bar, code as _code, parse_dt as _parse_dt, resolve_identity
+from yoink_stats.analytics._base import code as _code, parse_dt as _parse_dt
 
 
 class UsersMixin:

@@ -8,7 +8,6 @@ from sqlalchemy import (
     String, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlalchemy.types import NullType
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yoink.core.db.base import Base, _now

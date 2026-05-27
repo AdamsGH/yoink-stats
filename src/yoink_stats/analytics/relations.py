@@ -1,13 +1,11 @@
 """Relation analytics: activity correlation, median response time."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yoink_stats.analytics._base import parse_dt as _parse_dt
 
 
 class RelationsMixin:

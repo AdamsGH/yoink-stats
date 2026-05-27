@@ -7,7 +7,6 @@ from typing import Any
 
 from telegram import Update
 from telegram.constants import ChatType, ParseMode
-from telegram.error import Forbidden
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 logger = logging.getLogger(__name__)
@@ -276,7 +275,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # user_summary needs a real group chat_id — we can't run it without one in private
         # so we list the groups the user appears in and pick the first, or explain
         try:
-            from sqlalchemy import select, text as sa_text
+            from sqlalchemy import select
             from yoink_stats.storage.models import ChatMessage
             sf = context.bot_data.get("session_factory")
             if sf:
