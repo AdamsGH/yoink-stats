@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select, text
@@ -34,7 +35,7 @@ router = APIRouter(tags=["stats"])
 
 
 
-def _member_row_to_dict(row: object, cutoff: datetime) -> dict:
+def _member_row_to_dict(row: Any, cutoff: datetime) -> dict:
     last_active_at = getattr(row, "last_active_at", None)
     if last_active_at and last_active_at.year <= 1970:
         last_active_at = None
@@ -102,9 +103,9 @@ async def stats_chat_admins(
 @router.get("/members", summary="Chat member activity list (chat admin or bot admin)")
 async def stats_members(
     chat_id: ChatIdQuery,
+    request: Request,
+    background_tasks: BackgroundTasks,
     days: DaysQuery = None,
-    request: Request = None,
-    background_tasks: BackgroundTasks = None,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ) -> list[dict]:

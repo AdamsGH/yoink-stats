@@ -262,8 +262,12 @@ async def log_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if reaction_repo is None:
         return
 
-    old_keys = {_reaction_key(r) for r in (reaction_update.old_reaction or [])} - {None}
-    new_keys = {_reaction_key(r) for r in (reaction_update.new_reaction or [])} - {None}
+    old_keys: set[tuple[str, str]] = {
+        k for k in (_reaction_key(r) for r in (reaction_update.old_reaction or [])) if k is not None
+    }
+    new_keys: set[tuple[str, str]] = {
+        k for k in (_reaction_key(r) for r in (reaction_update.new_reaction or [])) if k is not None
+    }
 
     to_add = new_keys - old_keys
     to_remove = old_keys - new_keys

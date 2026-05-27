@@ -82,6 +82,9 @@ class StatsPlugin:
         from yoink_stats.commands import get_handler_specs
         return get_handler_specs()
 
+    def get_inline_handlers(self) -> list:
+        return []
+
     def get_routes(self) -> APIRouter | None:
         from yoink_stats.api.router import router
         return router

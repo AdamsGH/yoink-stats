@@ -39,4 +39,4 @@ search-path = [
     "../yoink-dl/src",
     "../yoink-music/src",
 ]
-ignore-missing-imports = ["matplotlib", "seaborn", "pytest", "pytest_asyncio"]
+ignore-missing-imports = ["matplotlib", "matplotlib.pyplot", "seaborn", "pytest", "pytest_asyncio"]

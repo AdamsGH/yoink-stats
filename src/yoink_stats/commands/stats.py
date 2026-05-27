@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from typing import Any
+from typing import Any, NoReturn
 
 from telegram import Update
 from telegram.constants import ChatType, ParseMode
@@ -98,10 +98,10 @@ def _build_help(lang: str = "en", error: str = "") -> str:
 # Argument parser
 
 class _NoExitParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         raise ValueError(message)
 
-    def exit(self, status: int = 0, message: str | None = None) -> None:
+    def exit(self, status: int = 0, message: str | None = None) -> NoReturn:
         raise ValueError(message or "")
 
 
