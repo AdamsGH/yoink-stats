@@ -10,7 +10,7 @@ import { meApi, type DlOverview, type InsightStats, type MusicStats, type TldrSt
 import { Card, CardContent, CardHeader, CardTitle } from '@ui'
 import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
-import { chartColors, ChartSkeleton, HorizontalBars, MiniBarChart, type MiniBarTooltipProps, SectionSkeleton, StatCard, StatCardSkeleton } from '@core/components/charts'
+import { chartColors, HorizontalBars, MiniBarChart, type MiniBarTooltipProps, SectionSkeleton, StatCard } from '@core/components/charts'
 
 
 
