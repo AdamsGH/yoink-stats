@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { meApi, type DlOverview, type InsightStats, type MusicStats, type TldrStats } from '@stats/api/me'
 import { Card, CardContent, CardHeader, CardTitle } from '@ui'
+import { PageContainer } from '@app'
 import { toast } from '@core/components/ui/toast'
 import type { UserStats } from '@core/types/plugin'
 import { chartColors, HorizontalBars, MiniBarChart, type MiniBarTooltipProps, SectionSkeleton, StatCard } from '@core/components/charts'
@@ -96,7 +97,8 @@ export default function StatsMePage() {
   const colors = chartColors()
 
   return (
-    <div className="space-y-4">
+    <PageContainer>
+      <div className="space-y-4">
       {/* Downloads */}
       <Card>
         <CardHeader className="px-4 py-3">
@@ -268,7 +270,8 @@ export default function StatsMePage() {
           ) : <EmptyState text={t('mystats.no_ai', { defaultValue: 'No AI summaries yet' })} />}
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </PageContainer>
   )
 }
 

@@ -11,6 +11,7 @@ import { formatDateDay } from '@core/lib/utils'
 import { openProfileLink, userInitials, userPhotoUrl } from '@core/lib/user-utils'
 import type { UserStats } from '@stats/types'
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, CardContent, CardHeader, CardTitle, Skeleton } from '@ui'
+import { PageContainer } from '@app'
 import { toast } from '@core/components/ui/toast'
 import { StatCard, StatCardSkeleton } from '@core/components/charts'
 
@@ -50,7 +51,8 @@ export default function StatsUserPage() {
   const photoUrl = userId ? userPhotoUrl(Number(userId)) : undefined
 
   return (
-    <div className="space-y-4">
+    <PageContainer>
+      <div className="space-y-4">
       {/* Back button */}
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => navigate(`/stats/${chatId}`)}>
@@ -136,6 +138,7 @@ export default function StatsUserPage() {
           </CardContent>
         </Card>
       )}
-    </div>
+      </div>
+    </PageContainer>
   )
 }

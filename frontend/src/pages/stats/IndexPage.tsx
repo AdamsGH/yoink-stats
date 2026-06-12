@@ -6,7 +6,7 @@ import { BarChart3, ChevronRight, MessageSquare } from 'lucide-react'
 import { groupsApi } from '@core/lib/api'
 import { statsApi } from '@stats/api'
 import { Avatar, AvatarFallback, AvatarImage, Badge, Card, CardContent, CardHeader, CardTitle, DividedList, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton, SkeletonList } from '@ui'
-import { EmptyState } from '@app'
+import { EmptyState, PageContainer } from '@app'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
 
@@ -32,7 +32,8 @@ export default function StatsIndexPage() {
   }, [navigate])
 
   return (
-    <div className="space-y-4">
+    <PageContainer>
+      <div className="space-y-4">
       <Card>
         <CardHeader className="px-4 py-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -95,6 +96,7 @@ export default function StatsIndexPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </PageContainer>
   )
 }

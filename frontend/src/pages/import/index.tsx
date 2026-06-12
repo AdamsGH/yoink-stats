@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { importApi, type ImportStatus } from '@stats/api/import'
 import { statsApi } from '@stats/api/stats'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '@ui'
+import { PageContainer } from '@app'
 import { toast } from '@core/components/ui/toast'
 import type { StatsGroup } from '@stats/types'
 
@@ -230,7 +231,8 @@ export default function ImportPage({ defaultChatId }: { defaultChatId?: string }
   )
 
   return (
-    <div className="space-y-5">
+    <PageContainer>
+      <div className="space-y-5">
       <Card>
         <CardHeader className="px-4 py-3">
           <CardTitle className="text-base">Import Telegram Desktop export</CardTitle>
@@ -371,6 +373,7 @@ export default function ImportPage({ defaultChatId }: { defaultChatId?: string }
           </p>
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </PageContainer>
   )
 }
