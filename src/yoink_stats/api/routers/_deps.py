@@ -1,13 +1,13 @@
 """Shared dependencies, type aliases and helpers for stats routers."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from telegram import ChatMemberLeft, ChatMemberBanned
+from telegram import ChatMemberBanned, ChatMemberLeft
 from telegram.error import TelegramError
 
 from yoink.core.auth.rbac import role_gte
@@ -28,7 +28,7 @@ def _since_param(days: int | None) -> datetime | None:
     """Convert a days lookback window to an absolute UTC cutoff, or None for all-time."""
     if days is None or days <= 0:
         return None
-    return datetime.now(timezone.utc) - timedelta(days=days)
+    return datetime.now(UTC) - timedelta(days=days)
 
 
 async def _is_chat_member(bot, chat_id: int, user_id: int) -> bool:

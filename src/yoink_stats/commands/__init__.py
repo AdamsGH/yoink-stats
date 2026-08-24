@@ -7,9 +7,9 @@ from yoink.core.plugin import HandlerSpec
 
 
 def get_handler_specs() -> list[HandlerSpec]:
-    from yoink_stats.commands.stats import register as reg_stats
-    from yoink_stats.commands.import_cmd import register as reg_import
     from yoink_stats.collector.listener import register as reg_listener
+    from yoink_stats.commands.import_cmd import register as reg_import
+    from yoink_stats.commands.stats import register as reg_stats
 
     class _Shim(Application):  # type: ignore[type-arg,misc]
         """Quacks like Application.add_handler; only the one method matters."""

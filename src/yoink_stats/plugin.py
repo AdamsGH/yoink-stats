@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter
-
-from yoink.core.plugin import JobSpec, PluginContext, WebManifest, WebPage, SidebarEntry
+from yoink.core.plugin import JobSpec, PluginContext, SidebarEntry, WebManifest, WebPage
 from yoink_stats.config import StatsConfig
+
+if TYPE_CHECKING:
+    from fastapi import APIRouter
 
 
 class StatsPlugin:
@@ -20,7 +22,13 @@ class StatsPlugin:
         return StatsConfig
 
     def get_models(self) -> list:
-        from yoink_stats.storage.models import ChatMessage, GroupMember, Reaction, UserEvent, UserNameHistory
+        from yoink_stats.storage.models import (
+            ChatMessage,
+            GroupMember,
+            Reaction,
+            UserEvent,
+            UserNameHistory,
+        )
         return [ChatMessage, GroupMember, Reaction, UserEvent, UserNameHistory]
 
     def get_features(self) -> list:

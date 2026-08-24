@@ -1,11 +1,11 @@
 """Analytics endpoints - message stats, activity charts, word/mention frequency."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import cast, func, select, text, distinct, Integer
+from sqlalchemy import Integer, cast, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yoink.core.api.deps import get_db
@@ -13,7 +13,10 @@ from yoink.core.auth.rbac import require_role, role_gte
 from yoink.core.db.models import Group, User, UserGroupPolicy, UserRole
 from yoink.core.db.query import date_params, load_sql
 from yoink_stats.api.routers._deps import (
-    ChatIdQuery, DaysQuery, _check_group_access, _since_param,
+    ChatIdQuery,
+    DaysQuery,
+    _check_group_access,
+    _since_param,
 )
 
 router = APIRouter(tags=["stats"])
@@ -350,8 +353,8 @@ async def stats_activity_by_month(
     """Message count per calendar month. Defaults to the last 12 months when year is omitted."""
     await _check_group_access(chat_id, session, current_user, request)
     if year is not None:
-        since = datetime(year, 1, 1, tzinfo=timezone.utc)
-        until = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        since = datetime(year, 1, 1, tzinfo=UTC)
+        until = datetime(year + 1, 1, 1, tzinfo=UTC)
         from yoink_stats.storage.models import ChatMessage  # noqa: PLC0415
         q = (
             select(
@@ -366,7 +369,7 @@ async def stats_activity_by_month(
         )
         rows = (await session.execute(q)).fetchall()
     else:
-        since = datetime.now(timezone.utc) - timedelta(days=365)
+        since = datetime.now(UTC) - timedelta(days=365)
         rows = (await session.execute(
             text(_SQL_ACTIVITY_BY_MONTH),
             date_params(since, chat_id=chat_id),

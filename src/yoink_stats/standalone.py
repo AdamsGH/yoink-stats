@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import logging
 
-
-from yoink.core.config import CoreSettings
 from yoink.app import build_app
+from yoink.core.config import CoreSettings
 from yoink_stats.plugin import StatsPlugin
 
 logging.basicConfig(

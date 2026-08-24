@@ -1,8 +1,7 @@
 """Shared utilities for stats analytics modules."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 
 _DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -21,7 +20,7 @@ def parse_dt(value: str | datetime | None) -> datetime | None:
         return None
     if isinstance(value, datetime):
         return value
-    return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+    return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
 def bar(count: int, max_count: int, width: int = 20) -> str:

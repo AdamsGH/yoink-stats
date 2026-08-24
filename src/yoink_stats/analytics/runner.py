@@ -1,13 +1,16 @@
 """StatsRunner: facade that composes all analytics mixins."""
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from typing import TYPE_CHECKING
 
 from yoink_stats.analytics.activity import ActivityMixin
 from yoink_stats.analytics.content import ContentMixin
 from yoink_stats.analytics.events import EventsMixin
 from yoink_stats.analytics.relations import RelationsMixin
 from yoink_stats.analytics.users import UsersMixin
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 class StatsRunner(ActivityMixin, UsersMixin, ContentMixin, RelationsMixin, EventsMixin):

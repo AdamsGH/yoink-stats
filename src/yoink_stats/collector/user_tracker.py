@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from telegram.error import BadRequest, Forbidden, TelegramError
-from telegram.ext import ContextTypes
+
+if TYPE_CHECKING:
+    from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
 
 async def _get_enabled_group_ids(context: ContextTypes.DEFAULT_TYPE) -> list[int]:
     """Return chat_ids that appear in stats_messages and belong to enabled groups."""
-    from sqlalchemy import select, distinct
-    from yoink_stats.storage.models import ChatMessage
+    from sqlalchemy import distinct, select
+
     from yoink.core.db.models import Group
+    from yoink_stats.storage.models import ChatMessage
 
     sf = context.bot_data.get("session_factory") or context.bot_data.get("stats_session_factory")
     if sf is None:
@@ -54,7 +58,8 @@ async def refresh_usernames(context: ContextTypes.DEFAULT_TYPE) -> None:
     if name_repo is None or msg_repo is None:
         return
 
-    from sqlalchemy import select, distinct
+    from sqlalchemy import distinct, select
+
     from yoink_stats.storage.models import ChatMessage
 
     group_ids = await _get_enabled_group_ids(context)

@@ -1,13 +1,18 @@
 """Activity analytics: hours, days, week heatmap, message history."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yoink_stats.analytics._base import bar as _bar, code as _code, parse_dt as _parse_dt, _DAYS
+from yoink_stats.analytics._base import _DAYS
+from yoink_stats.analytics._base import bar as _bar
+from yoink_stats.analytics._base import code as _code
+from yoink_stats.analytics._base import parse_dt as _parse_dt
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 class ActivityMixin:
@@ -185,7 +190,7 @@ class ActivityMixin:
         days: int = 30,
         lquery: str | None = None,
     ) -> tuple[str, None]:
-        dt_end = _parse_dt(end) or datetime.now(timezone.utc)
+        dt_end = _parse_dt(end) or datetime.now(UTC)
         dt_start = _parse_dt(start) or (dt_end - timedelta(days=days))
 
         conditions = ["chat_id = :chat_id", "date >= :start", "date <= :end"]

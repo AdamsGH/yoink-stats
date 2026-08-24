@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from telegram import Message, Update, ReactionTypeEmoji, ReactionTypeCustomEmoji
+from telegram import Message, ReactionTypeCustomEmoji, ReactionTypeEmoji, Update
 from telegram.ext import Application, ContextTypes, MessageHandler, MessageReactionHandler, filters
 
 from yoink.core.metrics import metrics
@@ -272,7 +272,7 @@ async def log_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     to_add = new_keys - old_keys
     to_remove = old_keys - new_keys
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for key, rtype in to_add:
         try:
@@ -287,7 +287,7 @@ async def log_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         except Exception as exc:
             logger.debug("Failed to upsert reaction %s for user %d: %s", key, user.id, exc)
 
-    for key, rtype in to_remove:
+    for key, _rtype in to_remove:
         try:
             await reaction_repo.delete(
                 user_id=user.id,

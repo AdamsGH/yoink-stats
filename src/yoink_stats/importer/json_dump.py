@@ -10,12 +10,15 @@ The JSON file is the export from Telegram Desktop:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
-from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +52,8 @@ def _parse_date(s: str) -> datetime:
     """Parse ISO date string from Telegram export into UTC datetime."""
     dt = datetime.fromisoformat(s)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _parse_message(msg: dict, chat_id: int) -> tuple[dict | None, list[dict]]:
@@ -88,19 +91,15 @@ def _parse_message(msg: dict, chat_id: int) -> tuple[dict | None, list[dict]]:
     if msg_type == "message":
         from_id = msg.get("from_id", "")
         if isinstance(from_id, str) and from_id.startswith("user"):
-            try:
+            with contextlib.suppress(ValueError):
                 base["from_user"] = int(from_id[4:])
-            except ValueError:
-                pass
 
         forwarded_from = msg.get("forwarded_from")
         if forwarded_from:
             fwd_id = msg.get("from_id", "")
             if isinstance(fwd_id, str) and fwd_id.startswith("user"):
-                try:
+                with contextlib.suppress(ValueError):
                     base["forward_from"] = int(fwd_id[4:])
-                except ValueError:
-                    pass
 
         raw_text = msg.get("text", "")
         text = _text_content(raw_text)
@@ -133,10 +132,8 @@ def _parse_message(msg: dict, chat_id: int) -> tuple[dict | None, list[dict]]:
     elif msg_type == "service":
         actor_id = msg.get("actor_id", "")
         if isinstance(actor_id, str) and actor_id.startswith("user"):
-            try:
+            with contextlib.suppress(ValueError):
                 base["from_user"] = int(actor_id[4:])
-            except ValueError:
-                pass
 
         action = msg.get("action", "")
         if action == "edit_group_title":
@@ -153,10 +150,8 @@ def _parse_message(msg: dict, chat_id: int) -> tuple[dict | None, list[dict]]:
                 for member_id in members:
                     uid = None
                     if isinstance(member_id, str) and member_id.startswith("user"):
-                        try:
+                        with contextlib.suppress(ValueError):
                             uid = int(member_id[4:])
-                        except ValueError:
-                            pass
                     elif isinstance(member_id, int):
                         uid = member_id
                     if uid:
@@ -180,10 +175,8 @@ def _parse_message(msg: dict, chat_id: int) -> tuple[dict | None, list[dict]]:
             for member_id in (msg.get("members") or []):
                 uid = None
                 if isinstance(member_id, str) and member_id.startswith("user"):
-                    try:
+                    with contextlib.suppress(ValueError):
                         uid = int(member_id[4:])
-                    except ValueError:
-                        pass
                 elif isinstance(member_id, int):
                     uid = member_id
                 if uid:
@@ -211,7 +204,7 @@ async def import_json(
     chat_id: int,
     tz: str = "UTC",
     batch_size: int = 500,
-    progress_cb: "Callable[[int, int], None] | None" = None,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> dict[str, int]:
     """
     Parse result.json and bulk-insert into stats_messages / stats_user_events.
@@ -219,7 +212,8 @@ async def import_json(
     Returns {"inserted": N, "skipped": M, "events": K}.
     """
     from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
     from yoink_stats.storage.models import ChatMessage, UserEvent
 
     path = Path(json_path)

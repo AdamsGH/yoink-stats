@@ -1,6 +1,7 @@
 """Import endpoints - Telegram Desktop chat export ingestion."""
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
@@ -47,13 +48,11 @@ async def import_history(
     job_id = str(uuid.uuid4())
     _import_jobs[job_id] = ImportStatus(job_id=job_id, status="running")
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
-    try:
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
         shutil.copyfileobj(file.file, tmp)
-    finally:
-        tmp.close()
+        tmp_path = tmp.name
 
-    background_tasks.add_task(_run_import, tmp.name, chat_id, job_id)
+    background_tasks.add_task(_run_import, tmp_path, chat_id, job_id)
     return _import_jobs[job_id]
 
 
@@ -124,7 +123,5 @@ async def _run_import(path: str, chat_id: int, job_id: str) -> None:
         logger.exception("Import job %s failed", job_id)
         _import_jobs[job_id] = ImportStatus(job_id=job_id, status="error", error=str(exc))
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(path)
-        except OSError:
-            pass

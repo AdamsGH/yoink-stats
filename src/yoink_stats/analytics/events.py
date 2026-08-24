@@ -1,13 +1,17 @@
 """Event analytics: chat title history."""
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yoink_stats.analytics._base import code as _code, parse_dt as _parse_dt
+from yoink_stats.analytics._base import code as _code
+from yoink_stats.analytics._base import parse_dt as _parse_dt
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 class EventsMixin:

@@ -1,11 +1,12 @@
 """Relation analytics: activity correlation, median response time."""
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 class RelationsMixin:

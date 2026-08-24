@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +58,7 @@ async def _sync_chat_admins(bot, chat_id: int, session: AsyncSession) -> None:
     """Fetch getChatAdministrators and upsert into stats_chat_admins."""
     try:
         admins = await bot.get_chat_administrators(chat_id=chat_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         synced_ids: list[int] = []
         for member in admins:
             if member.user.is_bot:
@@ -123,7 +123,7 @@ async def stats_members(
             background_tasks.add_task(_sync_chat_admins, bot, chat_id, session)
 
     since = _since_param(days)
-    cutoff = since or (datetime.now(timezone.utc) - timedelta(days=90))
+    cutoff = since or (datetime.now(UTC) - timedelta(days=90))
     rows = (await session.execute(
         text(_SQL_MEMBERS), date_params(since, chat_id=chat_id, limit=_MEMBERS_LIMIT),
     )).fetchall()
@@ -140,7 +140,11 @@ async def stats_members_sync(
     """Fetch all chat members via getChatMembers, write to stats_group_members,
     mark missing users as in_chat=false, then return merged member list."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert_core  # noqa: PLC0415
-    from yoink.core.services.user_session import UserSessionError, UserSessionService  # noqa: PLC0415
+
+    from yoink.core.services.user_session import (  # noqa: PLC0415
+        UserSessionError,
+        UserSessionService,
+    )
     from yoink_stats.storage.models import GroupMember, UserNameHistory  # noqa: PLC0415
 
     svc: UserSessionService | None = None
@@ -164,7 +168,7 @@ async def stats_members_sync(
             break
         offset += page
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     live_uids: set[int] = set()
 
     for m in all_members:
@@ -203,7 +207,7 @@ async def stats_members_sync(
             await session.execute(name_stmt)
 
         joined_ts = m.get("joined_date")
-        joined_dt = datetime.fromtimestamp(joined_ts, tz=timezone.utc) if joined_ts else None
+        joined_dt = datetime.fromtimestamp(joined_ts, tz=UTC) if joined_ts else None
 
         stmt = (
             pg_insert(GroupMember)
@@ -233,7 +237,7 @@ async def stats_members_sync(
 
     await session.commit()
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    cutoff = datetime.now(UTC) - timedelta(days=90)
     rows = (await session.execute(
         text(_SQL_MEMBERS), date_params(None, chat_id=chat_id, limit=_MEMBERS_LIMIT),
     )).fetchall()

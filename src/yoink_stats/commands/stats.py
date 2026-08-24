@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
-from telegram import Update
 from telegram.constants import ChatType, ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
+
+if TYPE_CHECKING:
+    from telegram import Update
 
 logger = logging.getLogger(__name__)
 
@@ -246,12 +248,9 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # In private with args but no group context: can't run group queries
-    if is_private:
-        # user subcommand works anywhere (uses calling user's id)
-        # everything else needs a group chat_id
-        if args[0] != "user":
-            await update.message.reply_html(_build_help(lang=lang))
-            return
+    if is_private and args[0] != "user":
+        await update.message.reply_html(_build_help(lang=lang))
+        return
 
     parser = _build_parser()
     try:
@@ -276,6 +275,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # so we list the groups the user appears in and pick the first, or explain
         try:
             from sqlalchemy import select
+
             from yoink_stats.storage.models import ChatMessage
             sf = context.bot_data.get("session_factory")
             if sf:

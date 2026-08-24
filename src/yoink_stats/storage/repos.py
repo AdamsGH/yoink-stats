@@ -1,15 +1,16 @@
 """Stats plugin repositories."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
-
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from yoink_stats.storage.models import ChatMessage, Reaction, UserEvent, UserNameHistory
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 class MessageRepo:
@@ -147,7 +148,7 @@ class UserNameRepo:
                 return
             s.add(UserNameHistory(
                 user_id=user_id,
-                date=datetime.now(timezone.utc),
+                date=datetime.now(UTC),
                 username=username,
                 display_name=display_name,
             ))

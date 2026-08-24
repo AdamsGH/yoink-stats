@@ -1,14 +1,18 @@
 """Import command - owner sends result.json as document to the bot in PM."""
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import tempfile
+from typing import TYPE_CHECKING
 
-from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from yoink.core.db.models import UserRole
+
+if TYPE_CHECKING:
+    from telegram import Update
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +62,9 @@ async def _handle_import_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         tg_file = await doc.get_file()
-        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
-        await tg_file.download_to_drive(tmp.name)
-        tmp.close()
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+        await tg_file.download_to_drive(tmp_path)
     except Exception as e:
         await status_msg.edit_text(f"❌ Failed to download file: {e}")
         return
@@ -69,8 +73,8 @@ async def _handle_import_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     async def _run() -> None:
         try:
-            from yoink_stats.importer.json_dump import import_json
             from yoink.core.config import CoreSettings
+            from yoink_stats.importer.json_dump import import_json
             cfg = CoreSettings()
 
             last_pct = [-1]
@@ -86,7 +90,7 @@ async def _handle_import_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     )
 
             result = await import_json(
-                json_path=tmp.name,
+                json_path=tmp_path,
                 db_url=cfg.database_url,
                 chat_id=chat_id,
                 progress_cb=_progress,
@@ -101,10 +105,8 @@ async def _handle_import_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.exception("Import failed for chat_id=%s", chat_id)
             await status_msg.edit_text(f"❌ Import failed: {e}")
         finally:
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
 
     context.application.create_task(_run())
 
