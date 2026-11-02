@@ -1,81 +1,40 @@
-# yoink-stats
+# Yoink Stats
 
-Analytics plugin for [yoink-core](https://github.com/AdamsGH/yoink-core). Passively logs all group messages and provides statistics via bot commands and a React web dashboard.
+Stats adds group analytics and message search to [Yoink](https://github.com/AdamsGH/yoink-core). Native Rust services own ingestion, authorization, analytics, and the derived Tantivy index.
 
-Included in yoink-core as a git submodule at `plugins/yoink-stats`.
+This repository contains the Stats frontend and retained legacy Python implementation. It is not an independent service in the native deployment.
 
-## Bot command
+## Use
 
-`/stats` - available in group chats and private chat. Shows a statistics menu with subcommands.
-
-```
-/stats counts · hours · days · week · history · words · random
-/stats rank · streak · ecdf · corr · delta · titles · mention
-/stats user        - personal summary (works in private)
-/stats -q QUERY    - full-text search filter
-/stats --start DATE --end DATE
+```text
+/stats counts -n 10
+/stats types
+/stats words -n 20
+/stats history --days 7
+/stats user
 ```
 
-## RBAC
+Run `/stats` in a group for command help. Private chats support only authorized `user` summaries.
 
-`FeatureSpec(stats:stats, default_min_role=user)` - accessible to all users by default, no explicit grant required.
+The Mini App provides group dashboards, activity views, member statistics, and related analytics.
 
-## API endpoints
+## Data and access
 
-Mounted at `/api/v1/stats/`. Auth: JWT Bearer token.
+Normal ingestion excludes private messages, disabled groups, and bot commands. The Bot API does not report ordinary message deletions.
 
-All endpoints accept `chat_id` and optional `days` (7/30/90) query parameters.
+Access depends on current identity, local assignments, Telegram membership, and the operation. Synchronization and administration have stricter requirements than ordinary analytics.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | /groups | user | Groups with message counts |
-| GET | /overview | user | Message totals for a group |
-| GET | /top-users | user | Top message senders |
-| GET | /activity-by-hour | user | Messages by hour of day |
-| GET | /activity-by-day | user | Messages by day of week |
-| GET | /activity-by-week | user | Weekly heatmap |
-| GET | /activity-by-month | user | Monthly activity |
-| GET | /message-types | user | Type breakdown (text, photo, video, etc) |
-| GET | /history | user | Message volume over time |
-| GET | /words | user | Top words |
-| GET | /user-stats | user | Per-user detailed stats |
-| GET | /ecdf | user | Empirical CDF of message lengths |
-| GET | /title-history | user | Group title changes |
-| GET | /mention-stats | user | Mention statistics |
-| GET | /daily-activity | user | DAU + message count per day |
-| GET | /member-events | user | Join/leave events per day |
-| GET | /avg-message-length | user | Average message length by user |
-| GET | /response-time | user | Response time distribution |
-| GET | /media-trend | user | Media type trend over time |
-| GET | /top-reactions | admin | Top reaction givers and top emoji |
-| GET | /members | user | Group members with activity stats |
-| POST | /members/sync | admin | Sync members via getChatMembers |
-| GET | /chat-admins | user | Chat admins for access check |
-| POST | /import | admin | Import chat history from JSON export |
-| POST | /import/by-path | admin | Import from server-side file path |
-| GET | /import/{job_id} | admin | Poll import job status |
-
-## Frontend
-
-Interactive dashboard at `/stats` in the Telegram WebApp:
-
-- Stats index page: single Card with Item list; each row shows group name, message count, period toggle
-- Group dashboard (`/stats/:chatId`): compact header with KPI grid (total messages, active users, avg/day), PeriodToggle (7d/30d/90d), activity charts, top users, history chart, DAU, member events
-- Per-user page (`/stats/:chatId/user/:userId`): individual activity breakdown
-- **Members tab**: visible to admins and chat admins; shows activity per member with active/inactive badge; sync button for full member list
-- **Reactions**: top reaction givers and top emoji cards (admin only)
-- **RankedList** component: compact ranked rows for top words, mentions, reactions
-- **PeriodToggle** component: 7d / 30d / 90d buttons, shared across all charts on a page
-- **UserStatsDrawer**: reusable drawer for per-user stats, used in top-users list and Members tab
-- JSON/CSV export
-- Catppuccin color theme (Latte / Frappe / Macchiato / Mocha)
-- Skeleton loading states with opacity-fade during refetch (no skeleton flash)
-- i18n (en / ru)
+The search contract is explicit and differs from PostgreSQL full-text tokenization. Native application rows remain the source of truth.
 
 ## Configuration
 
-| Variable | Default | Description |
-|---|---|---|
-| `stats_max_messages` | `0` | Hard cap on messages stored per group (0 = unlimited) |
-| `stats_refresh_interval` | `3600` | Username refresh job interval, seconds |
-| `stats_charts_enabled` | `true` | Toggle chart endpoints (off = analytics tables only) |
+Native settings include `YOINK_RUST_STATS_INDEX_DIR`, `YOINK_RUST_STATS_REFRESH_INTERVAL_SECS`, and `YOINK_RUST_STATS_IMPORT_ROOT`.
+
+The retained lowercase Python settings do not configure the Rust service. Declared legacy retention or chart options are not evidence of native support.
+
+## Documentation
+
+- [Stats guide](https://github.com/AdamsGH/yoink-core/blob/master/docs/features/stats.md)
+- [Search contract](https://github.com/AdamsGH/yoink-core/blob/master/docs/features/stats-search.md)
+- [Product limits](https://github.com/AdamsGH/yoink-core/blob/master/docs/architecture/products.md)
+- [Installation](https://github.com/AdamsGH/yoink-core/blob/master/docs/operations/installation.md)
